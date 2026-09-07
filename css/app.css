@@ -155,11 +155,13 @@
   margin-bottom: 22px;
 }
 
-.letterhead .crest-big-img {
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
+.letterhead-logo {
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+  border-radius: 8px;
   margin: 0 auto 10px auto;
+  display: block;
 }
 
 .letterhead h2 {

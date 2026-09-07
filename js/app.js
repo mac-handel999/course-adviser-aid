@@ -146,7 +146,7 @@ function showSaveIndicator() {
 function renderYearView(yearKey) {
   let html = `
     <div class="letterhead">
-      <div class="crest-big">F</div>
+      <img src="assets/futo-logo.jpeg" class="letterhead-logo" alt="FUTO Logo">
       <h2>${META.university}</h2>
       <h3>${escHtml(state.meta.school)}</h3>
       <p>${escHtml(state.meta.department)}</p>
@@ -448,7 +448,7 @@ function refreshSummary(yearKey, sem) {
 function renderTranscriptView() {
   return `
     <div class="letterhead">
-      <div class="crest-big">F</div>
+      <img src="assets/futo-logo.jpeg" class="letterhead-logo" alt="FUTO Logo">
       <h2>${META.university}</h2>
       <h3>${escHtml(state.meta.school)}</h3>
       <p>${escHtml(state.meta.department)}</p>
@@ -552,6 +552,22 @@ function generateTranscript() {
 }
 
 /* ===================== EXCEL EXPORT ===================== */
+async function getLogoBase64() {
+  try {
+    const response = await fetch('assets/futo-logo.jpeg');
+    const blob = await response.blob();
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } catch (e) {
+    console.error('Failed to load logo for Excel export:', e);
+    return null;
+  }
+}
+
 function buildExportAoa(headers, dataRows) {
   const aoa = [
     [META.university],
@@ -564,7 +580,7 @@ function buildExportAoa(headers, dataRows) {
   return aoa;
 }
 
-function exportSemesterExcel(yearKey, sem) {
+async function exportSemesterExcel(yearKey, sem) {
   const rows = state.years[yearKey][sem];
   const data = rows.map(r => {
     const gi = gradeInfo(r.score);
@@ -574,16 +590,44 @@ function exportSemesterExcel(yearKey, sem) {
   const ws = XLSX.utils.aoa_to_sheet(buildExportAoa(headers, data));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, sem.replace(/[:\\\/\?\*\[\]]/g, ''));
+
+  const logo = await getLogoBase64();
+  if (logo) {
+    try {
+      XLSX.utils.add_image(wb, logo, {
+        sheet: wb.SheetNames[0],
+        tl: { col: 0.5, row: 0.1 },
+        ext: { width: 48, height: 48 }
+      });
+    } catch (e) {
+      console.error('Failed to embed logo in Excel:', e);
+    }
+  }
+
   XLSX.writeFile(wb, `${yearKey} - ${sem}.xlsx`);
 }
 
-function exportTranscriptExcel() {
+async function exportTranscriptExcel() {
   if (!lastTranscript) return;
   const data = lastTranscript.flatRows.map(r => [r.Year, r.Semester, r.RegNo, r.Name, r.Code, r.Title, r.Unit, r.Score, r.Grade, r.Point]);
   const headers = ['Year', 'Semester', 'Reg No', 'Name', 'Code', 'Title', 'Unit', 'Score', 'Grade', 'Point'];
   const ws = XLSX.utils.aoa_to_sheet(buildExportAoa(headers, data));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Transcript');
+
+  const logo = await getLogoBase64();
+  if (logo) {
+    try {
+      XLSX.utils.add_image(wb, logo, {
+        sheet: wb.SheetNames[0],
+        tl: { col: 0.5, row: 0.1 },
+        ext: { width: 48, height: 48 }
+      });
+    } catch (e) {
+      console.error('Failed to embed logo in Excel:', e);
+    }
+  }
+
   XLSX.writeFile(wb, `Transcript - ${lastTranscript.regNo}.xlsx`);
 }
 
@@ -595,7 +639,16 @@ function exportSemesterCSV(yearKey, sem) {
     return [r.regNo, r.name, r.code, r.title, r.unit, r.score, gi.grade, gi.point];
   });
   const headers = ['Reg No', 'Student Name', 'Course Code', 'Course Title', 'Credit Unit', 'Score', 'Grade', 'Grade Point'];
-  const ws = XLSX.utils.aoa_to_sheet(buildExportAoa(headers, data));
+  const aoa = [
+    ['FUTO Public Health Results Portal — Logo: assets/futo-logo.jpeg'],
+    [META.university],
+    [state.meta.school],
+    [state.meta.department],
+    [''],
+    headers,
+    ...data
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
   const csv = XLSX.utils.sheet_to_csv(ws);
   downloadBlob(csv, `${yearKey} - ${sem}.csv`, 'text/csv');
 }
@@ -604,7 +657,16 @@ function exportTranscriptCSV() {
   if (!lastTranscript) return;
   const data = lastTranscript.flatRows.map(r => [r.Year, r.Semester, r.RegNo, r.Name, r.Code, r.Title, r.Unit, r.Score, r.Grade, r.Point]);
   const headers = ['Year', 'Semester', 'Reg No', 'Name', 'Code', 'Title', 'Unit', 'Score', 'Grade', 'Point'];
-  const ws = XLSX.utils.aoa_to_sheet(buildExportAoa(headers, data));
+  const aoa = [
+    ['FUTO Public Health Results Portal — Logo: assets/futo-logo.jpeg'],
+    [META.university],
+    [state.meta.school],
+    [state.meta.department],
+    [''],
+    headers,
+    ...data
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
   const csv = XLSX.utils.sheet_to_csv(ws);
   downloadBlob(csv, `Transcript - ${lastTranscript.regNo}.csv`, 'text/csv');
 }
@@ -687,7 +749,7 @@ function renderProfileView() {
   const email = currentUser?.email || 'Not available';
   return `
     <div class="letterhead">
-      <div class="crest-big">F</div>
+      <img src="assets/futo-logo.jpeg" class="letterhead-logo" alt="FUTO Logo">
       <h2>${META.university}</h2>
       <h3>${escHtml(state.meta.school)}</h3>
       <p>${escHtml(state.meta.department)}</p>
