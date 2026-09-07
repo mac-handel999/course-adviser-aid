@@ -192,7 +192,6 @@ function renderSemesterBlock(yearKey, sem) {
         <div class="toolbar">
           <button class="btn secondary" onclick="addRow('${yearKey}','${sem}')">+ Add student row</button>
           <button class="btn gold" onclick="exportSemesterExcel('${yearKey}','${sem}')">Export to Excel</button>
-          <button class="btn secondary" onclick="exportSemesterCSV('${yearKey}','${sem}')">Export to CSV</button>
           <button class="btn secondary" onclick="printSemester('${yearKey}','${sem}')">Print / PDF</button>
         </div>
       </div>
@@ -463,7 +462,6 @@ function renderTranscriptView() {
       <button class="btn" id="generateBtn" onclick="generateTranscript()">Generate transcript</button>
       <button class="btn gold" id="printBtn" onclick="window.print()" style="display:none">Print</button>
       <button class="btn secondary" id="excelBtn" onclick="exportTranscriptExcel()" style="display:none">Export to Excel</button>
-      <button class="btn secondary" id="csvBtn" onclick="exportTranscriptCSV()" style="display:none">Export to CSV</button>
     </div>
 
     <div class="transcript-doc" id="transcriptOutput">
@@ -692,49 +690,6 @@ async function exportTranscriptExcel() {
   a.download = `Transcript - ${lastTranscript.regNo}.xlsx`;
   a.click();
   URL.revokeObjectURL(url);
-}
-
-/* ===================== CSV EXPORT ===================== */
-/* Note: CSV is plain text and cannot embed images. The logo path is referenced
-   as a text note below for traceability; actual image embedding is only done
-   in the Excel (.xlsx) export via ExcelJS. */
-function exportSemesterCSV(yearKey, sem) {
-  const rows = state.years[yearKey][sem];
-  const data = rows.map(r => {
-    const gi = gradeInfo(r.score);
-    return [r.regNo, r.name, r.code, r.title, r.unit, r.score, gi.grade, gi.point];
-  });
-  const headers = ['Reg No', 'Student Name', 'Course Code', 'Course Title', 'Credit Unit', 'Score', 'Grade', 'Grade Point'];
-  const aoa = [
-    ['FUTO Public Health Results Portal — Logo: assets/futo-logo.jpeg'],
-    [META.university],
-    [state.meta.school],
-    [state.meta.department],
-    [''],
-    headers,
-    ...data
-  ];
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-  const csv = XLSX.utils.sheet_to_csv(ws);
-  downloadBlob(csv, `${yearKey} - ${sem}.csv`, 'text/csv');
-}
-
-function exportTranscriptCSV() {
-  if (!lastTranscript) return;
-  const data = lastTranscript.flatRows.map(r => [r.Year, r.Semester, r.RegNo, r.Name, r.Code, r.Title, r.Unit, r.Score, r.Grade, r.Point]);
-  const headers = ['Year', 'Semester', 'Reg No', 'Name', 'Code', 'Title', 'Unit', 'Score', 'Grade', 'Point'];
-  const aoa = [
-    ['FUTO Public Health Results Portal — Logo: assets/futo-logo.jpeg'],
-    [META.university],
-    [state.meta.school],
-    [state.meta.department],
-    [''],
-    headers,
-    ...data
-  ];
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-  const csv = XLSX.utils.sheet_to_csv(ws);
-  downloadBlob(csv, `Transcript - ${lastTranscript.regNo}.csv`, 'text/csv');
 }
 
 function downloadBlob(content, filename, type) {
