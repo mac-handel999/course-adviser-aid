@@ -552,7 +552,7 @@ function generateTranscript() {
 }
 
 /* ===================== EXCEL EXPORT ===================== */
-async function getLogoBase64() {
+async function getLogoBuffer() {
   try {
     const response = await fetch('assets/futo-logo.jpeg');
     const blob = await response.blob();
@@ -560,7 +560,7 @@ async function getLogoBase64() {
       const reader = new FileReader();
       reader.onloadend = () => resolve(reader.result);
       reader.onerror = reject;
-      reader.readAsDataURL(blob);
+      reader.readAsArrayBuffer(blob);
     });
   } catch (e) {
     console.error('Failed to load logo for Excel export:', e);
@@ -568,70 +568,136 @@ async function getLogoBase64() {
   }
 }
 
-function buildExportAoa(headers, dataRows) {
-  const aoa = [
-    [META.university],
-    [state.meta.school],
-    [state.meta.department],
-    [''],
-    headers,
-    ...dataRows
-  ];
-  return aoa;
-}
-
 async function exportSemesterExcel(yearKey, sem) {
   const rows = state.years[yearKey][sem];
   const data = rows.map(r => {
     const gi = gradeInfo(r.score);
-    return [r.regNo, r.name, r.code, r.title, r.unit, r.score, gi.grade, gi.point];
+    return { 'Reg No': r.regNo, 'Student Name': r.name, 'Course Code': r.code, 'Course Title': r.title,
+      'Credit Unit': r.unit, 'Score': r.score, 'Grade': gi.grade, 'Grade Point': gi.point };
   });
-  const headers = ['Reg No', 'Student Name', 'Course Code', 'Course Title', 'Credit Unit', 'Score', 'Grade', 'Grade Point'];
-  const ws = XLSX.utils.aoa_to_sheet(buildExportAoa(headers, data));
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, sem.replace(/[:\\\/\?\*\[\]]/g, ''));
 
-  const logo = await getLogoBase64();
-  if (logo) {
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet(sem.replace(/[:\\\/\?\*\[\]]/g, ''));
+
+  sheet.mergeCells('A1:H1');
+  sheet.getCell('A1').value = META.university;
+  sheet.getCell('A1').font = { bold: true, size: 14 };
+  sheet.getCell('A1').alignment = { horizontal: 'center' };
+
+  sheet.mergeCells('A2:H2');
+  sheet.getCell('A2').value = state.meta.school;
+  sheet.getCell('A2').font = { bold: true, size: 12 };
+  sheet.getCell('A2').alignment = { horizontal: 'center' };
+
+  sheet.mergeCells('A3:H3');
+  sheet.getCell('A3').value = state.meta.department;
+  sheet.getCell('A3').font = { bold: true, size: 12 };
+  sheet.getCell('A3').alignment = { horizontal: 'center' };
+
+  const logoBuffer = await getLogoBuffer();
+  if (logoBuffer) {
     try {
-      XLSX.utils.add_image(wb, logo, {
-        sheet: wb.SheetNames[0],
-        tl: { col: 0.5, row: 0.1 },
-        ext: { width: 48, height: 48 }
-      });
+      const imageId = workbook.addImage({ buffer: logoBuffer, extension: 'jpg' });
+      sheet.addImage(imageId, { tl: { col: 0.5, row: 0.1 }, ext: { width: 48, height: 48 } });
     } catch (e) {
       console.error('Failed to embed logo in Excel:', e);
     }
   }
 
-  XLSX.writeFile(wb, `${yearKey} - ${sem}.xlsx`);
+  const headerRow = sheet.getRow(5);
+  ['Reg No', 'Student Name', 'Course Code', 'Course Title', 'Credit Unit', 'Score', 'Grade', 'Grade Point'].forEach((header, idx) => {
+    header.getCell(idx + 1).value = header;
+    header.getCell(idx + 1).font = { bold: true };
+    header.getCell(idx + 1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0B4432' } };
+    header.getCell(idx + 1).font = { bold: true, color: { argb: 'FFF3F1E9' } };
+  });
+
+  data.forEach((row, idx) => {
+    const excelRow = sheet.getRow(6 + idx);
+    Object.values(row).forEach((val, colIdx) => {
+      excelRow.getCell(colIdx + 1).value = val;
+    });
+  });
+
+  sheet.columns.forEach(col => {
+    col.width = 18;
+  });
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${yearKey} - ${sem}.xlsx`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 async function exportTranscriptExcel() {
   if (!lastTranscript) return;
-  const data = lastTranscript.flatRows.map(r => [r.Year, r.Semester, r.RegNo, r.Name, r.Code, r.Title, r.Unit, r.Score, r.Grade, r.Point]);
-  const headers = ['Year', 'Semester', 'Reg No', 'Name', 'Code', 'Title', 'Unit', 'Score', 'Grade', 'Point'];
-  const ws = XLSX.utils.aoa_to_sheet(buildExportAoa(headers, data));
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Transcript');
+  const data = lastTranscript.flatRows.map(r => ({ 'Year': r.Year, 'Semester': r.Semester, 'Reg No': r.RegNo, 'Name': r.Name, 'Code': r.Code, 'Title': r.Title, 'Unit': r.Unit, 'Score': r.Score, 'Grade': r.Grade, 'Point': r.Point }));
 
-  const logo = await getLogoBase64();
-  if (logo) {
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet('Transcript');
+
+  sheet.mergeCells('A1:J1');
+  sheet.getCell('A1').value = META.university;
+  sheet.getCell('A1').font = { bold: true, size: 14 };
+  sheet.getCell('A1').alignment = { horizontal: 'center' };
+
+  sheet.mergeCells('A2:J2');
+  sheet.getCell('A2').value = state.meta.school;
+  sheet.getCell('A2').font = { bold: true, size: 12 };
+  sheet.getCell('A2').alignment = { horizontal: 'center' };
+
+  sheet.mergeCells('A3:J3');
+  sheet.getCell('A3').value = state.meta.department;
+  sheet.getCell('A3').font = { bold: true, size: 12 };
+  sheet.getCell('A3').alignment = { horizontal: 'center' };
+
+  const logoBuffer = await getLogoBuffer();
+  if (logoBuffer) {
     try {
-      XLSX.utils.add_image(wb, logo, {
-        sheet: wb.SheetNames[0],
-        tl: { col: 0.5, row: 0.1 },
-        ext: { width: 48, height: 48 }
-      });
+      const imageId = workbook.addImage({ buffer: logoBuffer, extension: 'jpg' });
+      sheet.addImage(imageId, { tl: { col: 0.5, row: 0.1 }, ext: { width: 48, height: 48 } });
     } catch (e) {
       console.error('Failed to embed logo in Excel:', e);
     }
   }
 
-  XLSX.writeFile(wb, `Transcript - ${lastTranscript.regNo}.xlsx`);
+  const headers = ['Year', 'Semester', 'Reg No', 'Name', 'Code', 'Title', 'Unit', 'Score', 'Grade', 'Point'];
+  const headerRow = sheet.getRow(5);
+  headers.forEach((header, idx) => {
+    headerRow.getCell(idx + 1).value = header;
+    headerRow.getCell(idx + 1).font = { bold: true, color: { argb: 'FFF3F1E9' } };
+    headerRow.getCell(idx + 1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0B4432' } };
+  });
+
+  data.forEach((row, idx) => {
+    const excelRow = sheet.getRow(6 + idx);
+    Object.values(row).forEach((val, colIdx) => {
+      excelRow.getCell(colIdx + 1).value = val;
+    });
+  });
+
+  sheet.columns.forEach(col => {
+    col.width = 18;
+  });
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `Transcript - ${lastTranscript.regNo}.xlsx`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 /* ===================== CSV EXPORT ===================== */
+/* Note: CSV is plain text and cannot embed images. The logo path is referenced
+   as a text note below for traceability; actual image embedding is only done
+   in the Excel (.xlsx) export via ExcelJS. */
 function exportSemesterCSV(yearKey, sem) {
   const rows = state.years[yearKey][sem];
   const data = rows.map(r => {

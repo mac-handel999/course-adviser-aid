@@ -20,6 +20,7 @@
   width: 28px;
   height: 28px;
   border-radius: 50%;
+  object-fit: cover;
 }
 
 .app-topbar .left span {
@@ -158,8 +159,8 @@
 .letterhead-logo {
   width: 64px;
   height: 64px;
-  object-fit: contain;
-  border-radius: 8px;
+  object-fit: cover;
+  border-radius: 50%;
   margin: 0 auto 10px auto;
   display: block;
 }
