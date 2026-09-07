@@ -1,0 +1,22 @@
+{
+  "name": "futo-public-health-results-portal",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Results & transcript portal for FUTO Department of Public Health",
+  "main": "server/app.js",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js",
+    "vercel-build": "echo 'Vercel serverless build'"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.25.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "ws": "^8.21.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

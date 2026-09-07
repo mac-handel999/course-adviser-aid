@@ -1,0 +1,657 @@
+/* ---------- app topbar ---------- */
+.app-topbar {
+  background: var(--paper);
+  border-bottom: 1px solid var(--line);
+  padding: 10px 22px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.app-topbar .left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  color: var(--ink);
+}
+
+.app-topbar .crest-sm-img {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+}
+
+.app-topbar .left span {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.app-topbar .right {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  font-size: 13px;
+}
+
+.app-topbar .right a,
+.app-topbar .right button.link {
+  text-decoration: none;
+  color: var(--muted);
+  background: none;
+  border: none;
+  font-size: 13px;
+  cursor: pointer;
+  font-family: 'Inter', sans-serif;
+}
+
+.app-topbar .right a:hover,
+.app-topbar .right button.link:hover {
+  color: var(--green-deep);
+}
+
+.user-chip {
+  background: var(--line-soft);
+  border-radius: 20px;
+  padding: 5px 12px;
+  font-size: 12.5px;
+  color: var(--ink);
+}
+
+/* ---------- app shell ---------- */
+#app {
+  display: flex;
+  min-height: calc(100vh - 53px);
+}
+
+.sidebar {
+  width: 226px;
+  flex-shrink: 0;
+  background: var(--green-deep);
+  color: #EFEAE0;
+  display: flex;
+  flex-direction: column;
+  padding: 18px 0;
+}
+
+.sidebar .sync-status {
+  padding: 0 18px 14px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+  margin-bottom: 8px;
+  font-size: 11px;
+  color: #B9CDC0;
+}
+
+.sidebar .sync-status .dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--gold);
+  margin-right: 6px;
+}
+
+.nav-group {
+  padding: 4px 10px;
+  overflow-y: auto;
+}
+
+.nav-label {
+  font-size: 10.5px;
+  color: #9FB3A5;
+  padding: 12px 10px 6px 10px;
+  letter-spacing: .4px;
+}
+
+.nav-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: #E4E7E1;
+  padding: 9px 11px;
+  border-radius: 7px;
+  font-size: 13.5px;
+  cursor: pointer;
+  font-family: 'Inter', sans-serif;
+  margin-bottom: 2px;
+}
+
+.nav-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.nav-btn.active {
+  background: var(--gold);
+  color: var(--green-deep);
+  font-weight: 600;
+}
+
+.nav-btn.transcript {
+  margin-top: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.content {
+  flex: 1;
+  padding: 30px 38px;
+  max-width: 1180px;
+}
+
+.view {
+  display: none;
+}
+
+.view.active {
+  display: block;
+}
+
+/* ---------- letterhead ---------- */
+.letterhead {
+  text-align: center;
+  padding-bottom: 16px;
+  border-bottom: 3px solid var(--green-deep);
+  margin-bottom: 22px;
+}
+
+.letterhead .crest-big-img {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  margin: 0 auto 10px auto;
+}
+
+.letterhead h2 {
+  margin: 0;
+  font-size: 19px;
+  color: var(--green-deep);
+  letter-spacing: .3px;
+}
+
+.letterhead h3 {
+  margin: 3px 0 0 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.letterhead p {
+  margin: 3px 0 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.letterhead .title-row {
+  margin-top: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gold);
+  letter-spacing: .5px;
+}
+
+/* ---------- semester block ---------- */
+.semester {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 20px 22px;
+  margin-bottom: 24px;
+}
+
+.semester-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.semester-head h3 {
+  margin: 0;
+  font-size: 16px;
+  color: var(--green-deep);
+}
+
+.semester-head .toolbar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.summary-card {
+  background: var(--line-soft);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.summary-card .num {
+  font-family: 'Source Serif 4', serif;
+  font-size: 19px;
+  color: var(--green-deep);
+  font-weight: 600;
+}
+
+.summary-card .lbl {
+  font-size: 10.5px;
+  color: var(--muted);
+  margin-top: 2px;
+  line-height: 1.25;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+thead th {
+  background: var(--green-deep);
+  color: #F3F1E9;
+  font-weight: 600;
+  font-size: 11.5px;
+  text-align: left;
+  padding: 8px 8px;
+  letter-spacing: .2px;
+}
+
+tbody td {
+  border-bottom: 1px solid var(--line-soft);
+  padding: 5px 6px;
+}
+
+tbody tr:hover {
+  background: #FBFAF6;
+}
+
+td input {
+  width: 100%;
+  border: 1px solid transparent;
+  background: transparent;
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  padding: 4px 5px;
+  border-radius: 5px;
+  color: var(--ink);
+}
+
+td input:hover {
+  border-color: var(--line);
+}
+
+td input:focus {
+  outline: none;
+  border-color: var(--gold);
+  background: #fff;
+}
+
+td.narrow input {
+  text-align: center;
+}
+
+.grade-cell,
+.point-cell {
+  text-align: center;
+  font-weight: 600;
+}
+
+.grade-cell.grade-F {
+  color: var(--red);
+}
+
+.grade-cell.grade-A,
+.grade-cell.grade-B {
+  color: var(--ok);
+}
+
+.icon-btn {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 15px;
+  padding: 3px 6px;
+  border-radius: 5px;
+}
+
+.icon-btn:hover {
+  background: #F3E8DB;
+  color: var(--red);
+}
+
+.empty-row td {
+  color: var(--muted);
+  font-style: italic;
+  text-align: center;
+  padding: 14px;
+}
+
+.top-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+/* ---------- report settings ---------- */
+.report-settings {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px 20px;
+  margin-bottom: 22px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  align-items: flex-end;
+}
+
+.report-settings strong {
+  font-size: 13px;
+  color: var(--green-deep);
+  margin-right: 6px;
+}
+
+.meta-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.meta-field label {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .3px;
+}
+
+.meta-field input {
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  font-size: 13px;
+  font-family: 'Inter', sans-serif;
+  min-width: 240px;
+  background: #fff;
+  color: var(--ink);
+}
+
+.meta-field input:focus {
+  outline: none;
+  border-color: var(--gold);
+}
+
+/* ---------- transcript view ---------- */
+.transcript-search {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 22px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.transcript-search .field label {
+  display: block;
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.transcript-search .field input {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  font-size: 13.5px;
+  min-width: 220px;
+  font-family: 'Inter', sans-serif;
+}
+
+.transcript-doc {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 26px 30px;
+}
+
+.t-year-block {
+  margin-bottom: 20px;
+}
+
+.t-year-block h4 {
+  color: var(--green-deep);
+  font-size: 14px;
+  border-bottom: 1px solid var(--line-soft);
+  padding-bottom: 6px;
+  margin-bottom: 8px;
+}
+
+.t-sem-label {
+  font-size: 11.5px;
+  color: var(--muted);
+  margin: 8px 0 4px 0;
+  font-weight: 600;
+}
+
+.t-totals {
+  display: flex;
+  gap: 26px;
+  margin-top: 6px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.t-totals b {
+  color: var(--ink);
+}
+
+.cgpa-banner {
+  margin-top: 22px;
+  padding: 16px 20px;
+  background: var(--green-deep);
+  color: #fff;
+  border-radius: 9px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.cgpa-banner .big {
+  font-family: 'Source Serif 4', serif;
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--gold);
+}
+
+.no-record {
+  color: var(--muted);
+  text-align: center;
+  padding: 40px 0;
+  font-style: italic;
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+
+/* ---------- profile view ---------- */
+.profile-card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 22px 26px;
+  margin-bottom: 22px;
+}
+
+.profile-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line-soft);
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.profile-row:last-child {
+  border-bottom: none;
+}
+
+.profile-label {
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .3px;
+}
+
+.profile-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  text-align: right;
+  word-break: break-word;
+}
+
+.profile-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.btn.danger {
+  background: var(--red);
+  border-color: var(--red);
+  color: #fff;
+}
+
+.btn.danger:hover {
+  opacity: .88;
+}
+
+@media print {
+
+  #reportSettings,
+  .sidebar,
+  .top-actions,
+  .toolbar,
+  .icon-btn,
+  .transcript-search,
+  .app-topbar {
+    display: none !important;
+  }
+
+  .content {
+    padding: 0;
+    max-width: none;
+  }
+
+  body {
+    background: #fff;
+  }
+
+  .semester,
+  .transcript-doc {
+    border: none;
+    box-shadow: none;
+  }
+}
+
+@media (max-width: 860px) {
+  #app {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    width: 100%;
+    flex-direction: row;
+    overflow-x: auto;
+    padding: 12px;
+  }
+
+  .sidebar .sync-status {
+    display: none;
+  }
+
+  .nav-group {
+    display: flex;
+    padding: 0;
+  }
+
+  .content {
+    padding: 20px;
+  }
+
+  .summary-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .app-topbar {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .app-topbar .right {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .report-settings {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .meta-field input {
+    min-width: auto;
+  }
+}
+
+@media (max-width: 480px) {
+  .content {
+    padding: 14px;
+  }
+
+  .top-actions {
+    flex-direction: column;
+  }
+
+  .top-actions .btn {
+    width: 100%;
+  }
+
+  .transcript-search {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .transcript-search .field input {
+    min-width: auto;
+  }
+
+  .profile-row {
+    flex-direction: column;
+  }
+
+  .profile-value {
+    text-align: left;
+  }
+
+  .semester-head .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .semester-head .toolbar .btn {
+    width: 100%;
+  }
+
+  .meta-field input {
+    width: 100%;
+  }
+}

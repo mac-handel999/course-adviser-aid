@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign in — FUTO Public Health Results Portal</title>
+  <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/landing.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+</head>
+
+<body>
+
+  <header class="site-header">
+    <div class="wrap">
+      <a class="brand-mark" href="index.html">
+        <img src="assets/logo.svg" alt="" class="crest-img">
+        <span class="brand-text"><span>Public Health Results Portal</span><small>FUTO · School of Health
+            Technology</small></span>
+      </a>
+      <nav class="main-nav" id="mainNav">
+        <a href="index.html#features">Features</a>
+        <a href="index.html#how-it-works">How it works</a>
+        <a href="app.html">Launch app</a>
+      </nav>
+      <div class="nav-actions">
+        <button class="mobile-toggle" id="mobileToggle" aria-label="Toggle menu">&#9776;</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="auth-wrap">
+    <div class="auth-card">
+      <h2 id="authTitle">Sign in</h2>
+      <p class="sub" id="authSub">Access your department result records.</p>
+
+      <form id="authForm">
+        <label for="email">Email</label>
+        <input type="email" id="email" required placeholder="you@futo.edu.ng">
+        <label for="password">Password</label>
+        <input type="password" id="password" required placeholder="••••••••">
+        <label for="fullName" id="fullNameLabel" style="display:none">Full name</label>
+        <input type="text" id="fullName" placeholder="e.g. John Doe" style="display:none">
+        <button class="btn gold" type="submit" id="authSubmit">Sign in</button>
+      </form>
+
+      <div class="auth-switch">
+        <a id="modeToggle">Need an account? Create one</a>
+      </div>
+
+      <a class="auth-guest" href="app.html">Continue without an account &rarr;</a>
+
+     
+    </div>
+  </div>
+
+  <footer class="site-footer">
+    <div class="bottom wrap">
+      <span id="year"></span> Department of Public Health, FUTO. Internal results tool.
+    </div>
+  </footer>
+
+  <script src="js/landing.js"></script>
+  <script src="js/supabase-config.js"></script>
+  <script src="js/auth.js"></script>
+</body>
+
+</html>
