@@ -603,11 +603,11 @@ async function exportSemesterExcel(yearKey, sem) {
   }
 
   const headerRow = sheet.getRow(5);
-  ['Reg No', 'Student Name', 'Course Code', 'Course Title', 'Credit Unit', 'Score', 'Grade', 'Grade Point'].forEach((header, idx) => {
-    header.getCell(idx + 1).value = header;
-    header.getCell(idx + 1).font = { bold: true };
-    header.getCell(idx + 1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0B4432' } };
-    header.getCell(idx + 1).font = { bold: true, color: { argb: 'FFF3F1E9' } };
+  ['Reg No', 'Student Name', 'Course Code', 'Course Title', 'Credit Unit', 'Score', 'Grade', 'Grade Point'].forEach((headerText, idx) => {
+    const cell = headerRow.getCell(idx + 1);
+    cell.value = headerText;
+    cell.font = { bold: true, color: { argb: 'FFF3F1E9' } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0B4432' } };
   });
 
   data.forEach((row, idx) => {
