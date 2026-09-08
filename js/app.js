@@ -526,7 +526,6 @@ function generateTranscript() {
     output.innerHTML = `<p class="no-record">No results found for Reg No "${escHtml(regNo)}". Check the entries in the year sheets.</p>`;
     document.getElementById('printBtn').style.display = 'none';
     document.getElementById('excelBtn').style.display = 'none';
-    document.getElementById('csvBtn').style.display = 'none';
     lastTranscript = null;
     return;
   }
@@ -545,7 +544,6 @@ function generateTranscript() {
   `;
   document.getElementById('printBtn').style.display = 'inline-block';
   document.getElementById('excelBtn').style.display = 'inline-block';
-  document.getElementById('csvBtn').style.display = 'inline-block';
   lastTranscript = { regNo, studentName, cgpa, flatRows };
 }
 
