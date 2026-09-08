@@ -10,6 +10,7 @@ router.get('/', async (req, res) => {
     const { data, error } = await supabaseAdmin
       .from('results')
       .select('*')
+      .eq('created_by', req.user.id)
       .order('created_at', { ascending: true });
 
     if (error) {
@@ -54,10 +55,26 @@ router.put('/:id', async (req, res) => {
     const { id } = req.params;
     const payload = req.body;
 
+    const { data: existing, error: existingError } = await supabaseAdmin
+      .from('results')
+      .select('id, created_by')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (existingError) {
+      console.error('Supabase select existing error:', existingError.message);
+      return res.status(500).json({ error: 'Failed to verify result ownership' });
+    }
+
+    if (!existing || existing.created_by !== req.user.id) {
+      return res.status(404).json({ error: 'Result not found' });
+    }
+
     const { data, error } = await supabaseAdmin
       .from('results')
       .update(payload)
       .eq('id', id)
+      .eq('created_by', req.user.id)
       .select()
       .single();
 
@@ -77,10 +94,26 @@ router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
 
+    const { data: existing, error: existingError } = await supabaseAdmin
+      .from('results')
+      .select('id, created_by')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (existingError) {
+      console.error('Supabase select existing error:', existingError.message);
+      return res.status(500).json({ error: 'Failed to verify result ownership' });
+    }
+
+    if (!existing || existing.created_by !== req.user.id) {
+      return res.status(404).json({ error: 'Result not found' });
+    }
+
     const { error } = await supabaseAdmin
       .from('results')
       .delete()
-      .eq('id', id);
+      .eq('id', id)
+      .eq('created_by', req.user.id);
 
     if (error) {
       console.error('Supabase delete error:', error.message);

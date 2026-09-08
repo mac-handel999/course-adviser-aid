@@ -19,10 +19,11 @@ create table if not exists public.results (
 
 alter table public.results enable row level security;
 
--- This treats the portal as one shared department workspace: any signed-in
--- staff account can read and edit every row, which matches how the old
--- shared spreadsheet worked. Tighten these to `created_by = auth.uid()`
--- later if you need each account to only see its own entries.
+-- Results are private per-user (per course adviser).
+-- Primary enforcement is in the Express API routes (server/routes/results.js),
+-- because the API uses the Supabase service role key which bypasses RLS.
+-- These RLS policies are a secondary safeguard in case the anon key is ever
+-- used to query this table directly, bypassing the API.
 
 drop policy if exists "Authenticated users can read results" on public.results;
 drop policy if exists "Authenticated users can insert results" on public.results;
@@ -32,22 +33,22 @@ drop policy if exists "Authenticated users can delete results" on public.results
 create policy "Authenticated users can read results"
   on public.results for select
   to authenticated
-  using (true);
+  using (created_by = auth.uid());
 
 create policy "Authenticated users can insert results"
   on public.results for insert
   to authenticated
-  with check (true);
+  with check (created_by = auth.uid());
 
 create policy "Authenticated users can update results"
   on public.results for update
   to authenticated
-  using (true);
+  using (created_by = auth.uid());
 
 create policy "Authenticated users can delete results"
   on public.results for delete
   to authenticated
-  using (true);
+  using (created_by = auth.uid());
 
 -- Keep updated_at current on every edit.
 create or replace function public.set_updated_at()

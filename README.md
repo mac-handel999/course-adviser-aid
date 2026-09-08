@@ -117,9 +117,10 @@ app already has CORS enabled for this case.
 - RLS policies in `schema.sql` are a second line of defense (the API
   bypasses them via the service role key); actual authorization for API
   requests happens in `server/middleware/requireAuth.js`.
-- Every signed-in account currently has full read/write access to all
-  results — a shared department workspace, not per-user data. Tightening
-  this would mean checking `req.user` against a role/permissions table in
-  the API routes.
+- Every signed-in account can only read, update, and delete their own
+  result rows. The Express API enforces this per-user isolation in
+  `server/routes/results.js`; the RLS policies in `schema.sql` act as a
+  secondary safeguard in case the anon key is used to query the table
+  directly.
 - No password-reset flow is wired into the sign-in page yet (Supabase
   supports it via `supabaseClient.auth.resetPasswordForEmail`).
