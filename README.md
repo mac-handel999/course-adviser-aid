@@ -101,7 +101,7 @@ app already has CORS enabled for this case.
 2. In the Vercel project's **Environment Variables**, add `SUPABASE_URL`
    and `SUPABASE_SERVICE_ROLE_KEY`.
 3. Deploy. Vercel serves the HTML/CSS/JS as static files and
-   `api/index.js` as a serverless function; `vercel.json` routes all
+   `api/index.js` as a serverless function; `vercel.json` rewrites all
    `/api/*` requests to it.
 4. Leave `API_BASE` as `''` in `js/api-config.js` for this — same-origin.
 
