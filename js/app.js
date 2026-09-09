@@ -352,7 +352,7 @@ async function handleImportFile(input, yearKey, sem) {
 function renderYearView(yearKey) {
   let html = `
     <div class="letterhead">
-      <img src="assets/advyza-logo.svg" class="letterhead-logo" alt="Advyza Logo">
+      <img src="assets/futo-logo.jpeg" class="letterhead-logo" alt="FUTO Logo">
       <h2>${META.university}</h2>
       <h3>${escHtml(state.meta.school)}</h3>
       <p>${escHtml(state.meta.department)}</p>
@@ -656,7 +656,7 @@ function refreshSummary(yearKey, sem) {
 function renderTranscriptView() {
   return `
     <div class="letterhead">
-      <img src="assets/advyza-logo.svg" class="letterhead-logo" alt="Advyza Logo">
+      <img src="assets/futo-logo.jpeg" class="letterhead-logo" alt="FUTO Logo">
       <h2>${META.university}</h2>
       <h3>${escHtml(state.meta.school)}</h3>
       <p>${escHtml(state.meta.department)}</p>
@@ -780,7 +780,7 @@ function generateTranscript() {
 /* ===================== EXCEL EXPORT ===================== */
 async function getLogoBuffer() {
   try {
-    const response = await fetch('assets/advyza-logo.png');
+    const response = await fetch('assets/futo-logo.jpeg');
     const blob = await response.blob();
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -1014,7 +1014,7 @@ function renderSettingsView() {
   const checkUrl = slug ? `${window.location.origin}/students-results/${encodeURIComponent(slug)}` : '';
   return `
     <div class="letterhead">
-      <img src="assets/advyza-logo.svg" class="letterhead-logo" alt="Advyza Logo">
+      <img src="assets/futo-logo.jpeg" class="letterhead-logo" alt="FUTO Logo">
       <h2>${META.university}</h2>
       <h3>${escHtml(state.meta.school)}</h3>
       <p>${escHtml(state.meta.department)}</p>
@@ -1145,7 +1145,7 @@ function renderProfileView() {
   const email = currentUser?.email || 'Not available';
   return `
     <div class="letterhead">
-      <img src="assets/advyza-logo.svg" class="letterhead-logo" alt="Advyza Logo">
+      <img src="assets/futo-logo.jpeg" class="letterhead-logo" alt="FUTO Logo">
       <h2>${META.university}</h2>
       <h3>${escHtml(state.meta.school)}</h3>
       <p>${escHtml(state.meta.department)}</p>
