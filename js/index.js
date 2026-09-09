@@ -58,7 +58,7 @@
         function renderYearView(yearKey) {
             let html = `
     <div class="letterhead">
-      <img src="assets/futo-logo.jpeg" class="letterhead-logo" alt="FUTO Logo">
+      <img src="assets/advyza-logo.svg" class="letterhead-logo" alt="Advyza Logo">
       <h2>${META.university}</h2>
       <h3>${META.school}</h3>
       <p>${META.department}</p>
@@ -210,7 +210,7 @@
         function renderTranscriptView() {
             return `
     <div class="letterhead">
-      <img src="assets/futo-logo.jpeg" class="letterhead-logo" alt="FUTO Logo">
+      <img src="assets/advyza-logo.svg" class="letterhead-logo" alt="Advyza Logo">
       <h2>${META.university}</h2>
       <h3>${META.school}</h3>
       <p>${META.department}</p>
