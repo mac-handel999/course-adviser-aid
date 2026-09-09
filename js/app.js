@@ -142,6 +142,212 @@ function showSaveIndicator() {
   }, 1500);
 }
 
+/* ===================== BATCH IMPORT ===================== */
+const IMPORT_FIELDS = [
+  { key: 'regNo', aliases: ['reg no', 'registration number', 'reg_number', 'regno', 'reg no.', 'registration no'] },
+  { key: 'name', aliases: ['student name', 'name', 'full name', 'student_name', 'fullname'] },
+  { key: 'code', aliases: ['course code', 'code', 'course_code', 'coursecode', 'course code'] },
+  { key: 'title', aliases: ['course title', 'title', 'course_title', 'coursetitle', 'course title'] },
+  { key: 'unit', aliases: ['credit unit', 'unit', 'credit_unit', 'creditunit', 'credits', 'cu'] },
+  { key: 'score', aliases: ['score', 'mark', 'score/mark', 'marks'] }
+];
+
+function normalizeColumnName(name) {
+  return String(name || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function mapRowFields(rawRow) {
+  const mapped = {};
+  const sourceKeys = Object.keys(rawRow);
+  sourceKeys.forEach(key => {
+    const norm = normalizeColumnName(key);
+    for (const field of IMPORT_FIELDS) {
+      if (field.aliases.includes(norm)) {
+        mapped[field.key] = rawRow[key];
+        return;
+      }
+    }
+    mapped[norm] = rawRow[key];
+  });
+  return mapped;
+}
+
+function parseImportFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Failed to read file.'));
+    reader.onload = async e => {
+      try {
+        const wb = XLSX.read(e.target.result, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const json = XLSX.utils.sheet_to_json(ws, { defval: '' });
+        resolve(json);
+      } catch (err) {
+        reject(new Error('Failed to parse spreadsheet. Ensure it is a valid .xlsx or .csv file.'));
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+function validateImportRows(rawRows, yearKey, sem) {
+  const errors = [];
+  const valid = [];
+  const seenPairs = new Set();
+  const existingPairs = new Set();
+  const existingRows = state.years[yearKey][sem] || [];
+  existingRows.forEach(r => {
+    const reg = (r.regNo || '').trim();
+    const code = (r.code || '').trim();
+    if (reg && code) existingPairs.add(`${reg}|||${code}`);
+  });
+
+  rawRows.forEach((raw, idx) => {
+    const row = mapRowFields(raw);
+    const rowLabel = `Row ${idx + 1}`;
+    const rowErrors = [];
+    const reg = String(row.regNo || '').trim();
+    const code = String(row.code || '').trim();
+    const unitRaw = row.unit;
+    const scoreRaw = row.score;
+
+    if (!reg) rowErrors.push('Reg No is required.');
+    if (!code) rowErrors.push('Course Code is required.');
+    if (unitRaw === '' || unitRaw === null || unitRaw === undefined) {
+      rowErrors.push('Credit Unit is required.');
+    } else {
+      const unitNum = parseFloat(unitRaw);
+      if (isNaN(unitNum) || unitNum <= 0) rowErrors.push('Credit Unit must be a number greater than 0.');
+    }
+    if (scoreRaw === '' || scoreRaw === null || scoreRaw === undefined) {
+      rowErrors.push('Score is required.');
+    } else {
+      const scoreNum = parseFloat(scoreRaw);
+      if (isNaN(scoreNum) || scoreNum < 0 || scoreNum > 100) rowErrors.push('Score must be a number between 0 and 100.');
+    }
+
+    const pairKey = `${reg}|||${code}`;
+    if (!rowErrors.length) {
+      if (seenPairs.has(pairKey)) rowErrors.push('Duplicate Reg No + Course Code within the uploaded file.');
+      if (existingPairs.has(pairKey)) rowErrors.push('This Reg No + Course Code already exists in the current semester sheet.');
+      seenPairs.add(pairKey);
+    }
+
+    if (rowErrors.length) {
+      errors.push({ index: idx, row: row, errors: rowErrors });
+    } else {
+      valid.push({
+        regNo: reg,
+        name: String(row.name || '').trim(),
+        code,
+        title: String(row.title || '').trim(),
+        unit: unitRaw === '' || unitRaw === null ? '' : String(unitRaw),
+        score: scoreRaw === '' || scoreRaw === null ? '' : String(scoreRaw)
+      });
+    }
+  });
+
+  return { valid, errors, total: rawRows.length };
+}
+
+function renderImportPreview(parsed, yearKey, sem) {
+  const overlay = document.createElement('div');
+  overlay.className = 'import-overlay';
+  overlay.innerHTML = `
+    <div class="import-modal">
+      <h3>Import preview — ${yearKey} · ${sem}</h3>
+      <div class="import-summary">
+        <div><span class="num">${parsed.total}</span><span class="lbl">Total rows found</span></div>
+        <div><span class="num ok">${parsed.valid.length}</span><span class="lbl">Valid rows</span></div>
+        <div><span class="num err">${parsed.errors.length}</span><span class="lbl">Rows with errors</span></div>
+      </div>
+      ${parsed.errors.length ? `
+        <div class="import-errors">
+          <strong>Errors</strong>
+          <ul>
+            ${parsed.errors.map(e => `<li><b>${e.index + 1}</b>: ${e.errors.join(' ')}</li>`).join('')}
+          </ul>
+        </div>
+      ` : ''}
+      <div class="import-table-wrap">
+        <table>
+          <thead>
+            <tr><th>Reg No</th><th>Student Name</th><th>Code</th><th>Course Title</th><th>Unit</th><th>Score</th></tr>
+          </thead>
+          <tbody>
+            ${parsed.valid.map(r => `<tr><td>${escHtml(r.regNo)}</td><td>${escHtml(r.name)}</td><td>${escHtml(r.code)}</td><td>${escHtml(r.title)}</td><td>${escHtml(r.unit)}</td><td>${escHtml(r.score)}</td></tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div class="import-actions">
+        <button class="btn gold" id="confirmImportBtn">Import ${parsed.valid.length} valid rows</button>
+        <button class="btn secondary" id="cancelImportBtn">Cancel</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  document.getElementById('cancelImportBtn').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+  document.getElementById('confirmImportBtn').addEventListener('click', async () => {
+    overlay.remove();
+    await commitImport(parsed.valid, yearKey, sem);
+  });
+}
+
+async function commitImport(rows, yearKey, sem) {
+  if (!rows.length) return;
+  rows.forEach(r => {
+    const newRow = { ...emptyRow(), ...r };
+    state.years[yearKey][sem].push(newRow);
+    const idx = state.years[yearKey][sem].length - 1;
+    scheduleSave(yearKey, sem, idx);
+  });
+  saveToLocalStorage();
+  render();
+  alert(`${rows.length} row(s) imported successfully.`);
+}
+
+async function handleImportFile(input, yearKey, sem) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+
+  try {
+    const rawRows = await parseImportFile(file);
+    if (!rawRows || !rawRows.length) {
+      alert('The uploaded file appears to be empty.');
+      input.value = '';
+      return;
+    }
+
+    const mapped = rawRows.map(r => mapRowFields(r));
+    const requiredHeaders = ['reg no', 'course code', 'credit unit', 'score'];
+    const availableHeaders = new Set();
+    mapped.forEach(r => Object.keys(r).forEach(k => availableHeaders.add(k)));
+    const missingRequired = requiredHeaders.filter(h => !availableHeaders.has(h));
+
+    if (missingRequired.length) {
+      alert(`Missing required column(s): ${missingRequired.join(', ')}. Please include these headers in your file.`);
+      input.value = '';
+      return;
+    }
+
+    const parsed = validateImportRows(mapped, yearKey, sem);
+    if (!parsed.valid.length && parsed.errors.length) {
+      alert(`No valid rows found. ${parsed.errors.length} row(s) have errors.`);
+      input.value = '';
+      return;
+    }
+
+    showImportPreview(parsed, yearKey, sem);
+  } catch (err) {
+    alert(err.message || 'Failed to import file.');
+  } finally {
+    input.value = '';
+  }
+}
+
 /* ===================== YEAR VIEW ===================== */
 function renderYearView(yearKey) {
   let html = `
@@ -191,6 +397,8 @@ function renderSemesterBlock(yearKey, sem) {
         <h3>${sem}</h3>
         <div class="toolbar">
           <button class="btn secondary" onclick="addRow('${yearKey}','${sem}')">+ Add student row</button>
+          <button class="btn secondary" onclick="document.getElementById('import-${yearKey}-${semSlug}').click()">Import from file</button>
+          <input type="file" id="import-${yearKey}-${semSlug}" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleImportFile(this, '${yearKey}', '${sem}')">
           <button class="btn gold" onclick="exportSemesterExcel('${yearKey}','${sem}')">Export to Excel</button>
           <button class="btn secondary" onclick="printSemester('${yearKey}','${sem}')">Print / PDF</button>
         </div>
