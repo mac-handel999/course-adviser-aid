@@ -3,9 +3,28 @@
 
    Public lookup via /api/public/portal/:slug/lookup with passcode +
    registration number. No Supabase auth required.
+
+   The canonical URL shape is /students-results/:slug, served through the
+   Vercel rewrite in vercel.json. That rewrite is NOT honored by plain
+   static-file servers (VS Code Live Server, python -m http.server, etc.),
+   so this script also accepts ?portal=<slug> as a fallback for local
+   testing without vercel dev.
    ========================================================================= */
 
-const portalSlug = (window.location.pathname || '').split('/').filter(Boolean).pop() || '';
+function getPortalSlug() {
+  const pathSlug = (window.location.pathname || '').split('/').filter(Boolean).pop() || '';
+  if (pathSlug && pathSlug !== 'check-results.html') {
+    return pathSlug;
+  }
+  const params = new URLSearchParams(window.location.search);
+  const querySlug = (params.get('portal') || '').trim();
+  if (querySlug) {
+    return querySlug;
+  }
+  return '';
+}
+
+const portalSlug = getPortalSlug();
 
 if (!portalSlug) {
   document.getElementById('checkFaculty').textContent = 'Invalid portal link.';
