@@ -64,6 +64,8 @@ if (continueBtn) {
   });
 }
 
+let lastResultsData = null;
+
 checkForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   checkError.textContent = '';
@@ -90,6 +92,13 @@ checkForm.addEventListener('submit', async (e) => {
       checkResult.style.display = 'none';
       return;
     }
+
+    lastResultsData = {
+      regNo: data.regNo,
+      faculty: data.faculty,
+      department: data.department,
+      results: data.results
+    };
 
     document.getElementById('checkFaculty').textContent = data.faculty || '';
     document.getElementById('checkDepartment').textContent = data.department || '';
@@ -150,8 +159,8 @@ function escHtml(v) { return (v === undefined || v === null) ? '' : String(v).re
 
 /* ===================== EXCEL EXPORT ===================== */
 async function exportResultsExcel() {
-  const regNo = document.getElementById('resultRegNo').textContent;
-  if (!regNo) return;
+  if (!lastResultsData) return;
+  const { regNo, faculty, department, results } = lastResultsData;
 
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet('Results');
@@ -162,12 +171,12 @@ async function exportResultsExcel() {
   sheet.getCell('A1').alignment = { horizontal: 'center' };
 
   sheet.mergeCells('A2:G2');
-  sheet.getCell('A2').value = document.getElementById('checkFaculty').textContent || '';
+  sheet.getCell('A2').value = faculty || '';
   sheet.getCell('A2').font = { bold: true, size: 12 };
   sheet.getCell('A2').alignment = { horizontal: 'center' };
 
   sheet.mergeCells('A3:G3');
-  sheet.getCell('A3').value = document.getElementById('checkDepartment').textContent || '';
+  sheet.getCell('A3').value = department || '';
   sheet.getCell('A3').font = { bold: true, size: 12 };
   sheet.getCell('A3').alignment = { horizontal: 'center' };
 
@@ -196,22 +205,12 @@ async function exportResultsExcel() {
   });
 
   const blocks = {};
-  (document.getElementById('resultBlocks').innerHTML || '').replace(/<div class="t-year-block"><h4>(.*?)<\/h4>((?:<div class="t-sem-label">.*?<\/div>.*?)*)<\/div>/gs, (match, year, semBlocks) => {
-    const semRegex = /<div class="t-sem-label">(.*?)<\/div>.*?<tbody>((?:<tr>.*?<\/tr>)+)<\/tbody>/gs;
-    let semMatch;
-    while ((semMatch = semRegex.exec(semBlocks)) !== null) {
-      const sem = semMatch[1];
-      const rows = semMatch[2];
-      const trRegex = /<tr><td>(.*?)<\/td><td>(.*?)<\/td><td[^>]*>(.*?)<\/td><td[^>]*>(.*?)<\/td><td[^>]*>(.*?)<\/td><td[^>]*>(.*?)<\/td><\/tr>/g;
-      let trMatch;
-      while ((trMatch = trRegex.exec(rows)) !== null) {
-        const [, code, title, unit, score, grade, point] = trMatch;
-        if (!blocks[year]) blocks[year] = {};
-        if (!blocks[year][sem]) blocks[year][sem] = [];
-        blocks[year][sem].push({ code, title, unit, score, grade, point });
-      }
-    }
-    return '';
+  (results || []).forEach(r => {
+    const yearKey = r.year;
+    if (!blocks[yearKey]) blocks[yearKey] = {};
+    const sem = r.semester;
+    if (!blocks[yearKey][sem]) blocks[yearKey][sem] = [];
+    blocks[yearKey][sem].push(r);
   });
 
   const sortedYears = Object.keys(blocks).sort();
@@ -221,12 +220,13 @@ async function exportResultsExcel() {
     semesters.forEach(sem => {
       blocks[yearKey][sem].forEach(r => {
         const excelRow = sheet.getRow(excelRowIdx);
-        excelRow.getCell(1).value = r.code;
-        excelRow.getCell(2).value = r.title;
-        excelRow.getCell(3).value = r.unit;
+        const gi = gradeInfo(r.score);
+        excelRow.getCell(1).value = r.course_code;
+        excelRow.getCell(2).value = r.course_title;
+        excelRow.getCell(3).value = r.credit_unit;
         excelRow.getCell(4).value = r.score;
-        excelRow.getCell(5).value = r.grade;
-        excelRow.getCell(6).value = r.point;
+        excelRow.getCell(5).value = gi.grade;
+        excelRow.getCell(6).value = gi.point;
         excelRow.getCell(7).value = `${yearKey} - ${sem}`;
         excelRowIdx += 1;
       });

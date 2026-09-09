@@ -180,7 +180,39 @@ function parseImportFile(file) {
       try {
         const wb = XLSX.read(e.target.result, { type: 'array' });
         const ws = wb.Sheets[wb.SheetNames[0]];
-        const json = XLSX.utils.sheet_to_json(ws, { defval: '' });
+        const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+
+        let headerRowIndex = -1;
+        let headers = [];
+
+        for (let i = 0; i < raw.length; i++) {
+          const row = raw[i];
+          const normalizedCells = row.map(cell => normalizeColumnName(cell));
+          const matchCount = normalizedCells.filter(cell => {
+            return IMPORT_FIELDS.some(field => field.aliases.includes(cell));
+          }).length;
+
+          if (matchCount >= 2) {
+            headerRowIndex = i;
+            headers = row.map((cell, idx) => String(cell || `col_${idx}`).trim());
+            break;
+          }
+        }
+
+        if (headerRowIndex === -1) {
+          return reject(new Error('Could not detect header row. Please ensure your file contains columns like Reg No, Student Name, Course Code, etc.'));
+        }
+
+        const dataRows = raw.slice(headerRowIndex + 1).filter(row => row.some(cell => cell !== '' && cell !== null && cell !== undefined));
+
+        const json = dataRows.map(row => {
+          const obj = {};
+          headers.forEach((header, idx) => {
+            obj[header] = row[idx] !== undefined ? row[idx] : '';
+          });
+          return obj;
+        });
+
         resolve(json);
       } catch (err) {
         reject(new Error('Failed to parse spreadsheet. Ensure it is a valid .xlsx or .csv file.'));
@@ -194,13 +226,6 @@ function validateImportRows(rawRows, yearKey, sem) {
   const errors = [];
   const valid = [];
   const seenPairs = new Set();
-  const existingPairs = new Set();
-  const existingRows = state.years[yearKey][sem] || [];
-  existingRows.forEach(r => {
-    const reg = (r.regNo || '').trim();
-    const code = (r.code || '').trim();
-    if (reg && code) existingPairs.add(`${reg}|||${code}`);
-  });
 
   rawRows.forEach((raw, idx) => {
     const row = mapRowFields(raw);
@@ -229,7 +254,6 @@ function validateImportRows(rawRows, yearKey, sem) {
     const pairKey = `${reg}|||${code}`;
     if (!rowErrors.length) {
       if (seenPairs.has(pairKey)) rowErrors.push('Duplicate Reg No + Course Code within the uploaded file.');
-      if (existingPairs.has(pairKey)) rowErrors.push('This Reg No + Course Code already exists in the current semester sheet.');
       seenPairs.add(pairKey);
     }
 
@@ -298,15 +322,31 @@ function renderImportPreview(parsed, yearKey, sem) {
 
 async function commitImport(rows, yearKey, sem) {
   if (!rows.length) return;
+  let updated = 0;
+  let inserted = 0;
   rows.forEach(r => {
     const newRow = { ...emptyRow(), ...r };
-    state.years[yearKey][sem].push(newRow);
-    const idx = state.years[yearKey][sem].length - 1;
-    scheduleSave(yearKey, sem, idx);
+    const existingIndex = state.years[yearKey][sem].findIndex(row =>
+      (row.regNo || '').trim() === (newRow.regNo || '').trim() &&
+      (row.code || '').trim() === (newRow.code || '').trim()
+    );
+    if (existingIndex >= 0) {
+      state.years[yearKey][sem][existingIndex] = newRow;
+      scheduleSave(yearKey, sem, existingIndex);
+      updated++;
+    } else {
+      state.years[yearKey][sem].push(newRow);
+      const idx = state.years[yearKey][sem].length - 1;
+      scheduleSave(yearKey, sem, idx);
+      inserted++;
+    }
   });
   saveToLocalStorage();
   render();
-  alert(`${rows.length} row(s) imported successfully.`);
+  const parts = [];
+  if (inserted) parts.push(`${inserted} inserted`);
+  if (updated) parts.push(`${updated} updated`);
+  alert(`${parts.join(', ')}.`);
 }
 
 async function handleImportFile(input, yearKey, sem) {
@@ -322,13 +362,9 @@ async function handleImportFile(input, yearKey, sem) {
     }
 
     const mapped = rawRows.map(r => mapRowFields(r));
-    const requiredHeaders = ['reg no', 'course code', 'credit unit', 'score'];
-    const availableHeaders = new Set();
-    mapped.forEach(r => Object.keys(r).forEach(k => availableHeaders.add(k)));
-    const missingRequired = requiredHeaders.filter(h => !availableHeaders.has(h));
-
-    if (missingRequired.length) {
-      alert(`Missing required column(s): ${missingRequired.join(', ')}. Please include these headers in your file.`);
+    const hasRequired = mapped.some(r => r.regNo || r.code || r.unit || r.score);
+    if (!hasRequired) {
+      alert('The uploaded file does not contain recognizable result columns. Please ensure headers like Reg No, Course Code, Credit Unit, and Score are present.');
       input.value = '';
       return;
     }
@@ -358,6 +394,9 @@ function renderYearView(yearKey) {
       <p>${escHtml(state.meta.department)}</p>
       <div class="title-row">${yearKey.toUpperCase()} — RESULT COMPUTATION</div>
     </div>
+    <div class="year-actions">
+      <button class="btn gold" onclick="exportYearExcel('${yearKey}')">Export ${yearKey} to Excel</button>
+    </div>
   `;
   SEMESTERS.forEach(sem => { html += renderSemesterBlock(yearKey, sem); });
   return html;
@@ -365,16 +404,24 @@ function renderYearView(yearKey) {
 
 function renderSemesterBlock(yearKey, sem) {
   const rows = state.years[yearKey][sem];
+  rows.sort((a, b) => {
+    const nameA = (a.name || '').trim().toLowerCase();
+    const nameB = (b.name || '').trim().toLowerCase();
+    if (nameA < nameB) return -1;
+    if (nameA > nameB) return 1;
+    return 0;
+  });
   const summary = computeSummary(rows);
 
   let rowsHtml = '';
   if (rows.length === 0) {
-    rowsHtml = `<tr class="empty-row"><td colspan="9">No students added yet — click "Add student row" to begin.</td></tr>`;
+    rowsHtml = `<tr class="empty-row"><td colspan="10">No students added yet — click "Add student row" to begin.</td></tr>`;
   } else {
     rows.forEach((r, i) => {
       const gi = gradeInfo(r.score);
       rowsHtml += `
         <tr>
+          <td>${i + 1}</td>
           <td><input value="${escAttr(r.regNo)}" placeholder="Reg No" oninput="updateCell('${yearKey}','${sem}',${i},'regNo',this.value)"></td>
           <td><input value="${escAttr(r.name)}" placeholder="Student name" oninput="updateCell('${yearKey}','${sem}',${i},'name',this.value)"></td>
           <td class="narrow"><input value="${escAttr(r.code)}" placeholder="Code" oninput="updateCell('${yearKey}','${sem}',${i},'code',this.value)"></td>
@@ -411,6 +458,7 @@ function renderSemesterBlock(yearKey, sem) {
       <table>
         <thead>
           <tr>
+            <th style="width:5%">S/N</th>
             <th style="width:12%">Reg No</th>
             <th style="width:20%">Student Name</th>
             <th style="width:9%">Code</th>
@@ -796,26 +844,26 @@ async function getLogoBuffer() {
 
 async function exportSemesterExcel(yearKey, sem) {
   const rows = state.years[yearKey][sem];
-  const data = rows.map(r => {
+  const data = rows.map((r, idx) => {
     const gi = gradeInfo(r.score);
-    return { 'Reg No': r.regNo, 'Student Name': r.name, 'Course Code': r.code, 'Course Title': r.title,
+    return { 'S/N': idx + 1, 'Reg No': r.regNo, 'Student Name': r.name, 'Course Code': r.code, 'Course Title': r.title,
       'Credit Unit': r.unit, 'Score': r.score, 'Grade': gi.grade, 'Grade Point': gi.point };
   });
 
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet(sem.replace(/[:\\\/\?\*\[\]]/g, ''));
 
-  sheet.mergeCells('A1:H1');
+  sheet.mergeCells('A1:J1');
   sheet.getCell('A1').value = META.university;
   sheet.getCell('A1').font = { bold: true, size: 14 };
   sheet.getCell('A1').alignment = { horizontal: 'center' };
 
-  sheet.mergeCells('A2:H2');
+  sheet.mergeCells('A2:J2');
   sheet.getCell('A2').value = state.meta.school;
   sheet.getCell('A2').font = { bold: true, size: 12 };
   sheet.getCell('A2').alignment = { horizontal: 'center' };
 
-  sheet.mergeCells('A3:H3');
+  sheet.mergeCells('A3:J3');
   sheet.getCell('A3').value = state.meta.department;
   sheet.getCell('A3').font = { bold: true, size: 12 };
   sheet.getCell('A3').alignment = { horizontal: 'center' };
@@ -831,7 +879,7 @@ async function exportSemesterExcel(yearKey, sem) {
   }
 
   const headerRow = sheet.getRow(5);
-  ['Reg No', 'Student Name', 'Course Code', 'Course Title', 'Credit Unit', 'Score', 'Grade', 'Grade Point'].forEach((headerText, idx) => {
+  ['S/N', 'Reg No', 'Student Name', 'Course Code', 'Course Title', 'Credit Unit', 'Score', 'Grade', 'Grade Point'].forEach((headerText, idx) => {
     const cell = headerRow.getCell(idx + 1);
     cell.value = headerText;
     cell.font = { bold: true, color: { argb: 'FFF3F1E9' } };
@@ -855,6 +903,80 @@ async function exportSemesterExcel(yearKey, sem) {
   const a = document.createElement('a');
   a.href = url;
   a.download = `${yearKey} - ${sem}.xlsx`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function exportYearExcel(yearKey) {
+  const workbook = new ExcelJS.Workbook();
+  const logoBuffer = await getLogoBuffer();
+
+  SEMESTERS.forEach(sem => {
+    const rows = state.years[yearKey][sem];
+    const data = rows.map((r, idx) => {
+      const gi = gradeInfo(r.score);
+      return { 'S/N': idx + 1, 'Reg No': r.regNo, 'Student Name': r.name, 'Course Code': r.code, 'Course Title': r.title,
+        'Credit Unit': r.unit, 'Score': r.score, 'Grade': gi.grade, 'Grade Point': gi.point };
+    });
+
+    const safeSem = sem.replace(/[:\\\/\?\*\[\]]/g, '');
+    const sheet = workbook.addWorksheet(safeSem);
+
+    sheet.mergeCells('A1:J1');
+    sheet.getCell('A1').value = META.university;
+    sheet.getCell('A1').font = { bold: true, size: 14 };
+    sheet.getCell('A1').alignment = { horizontal: 'center' };
+
+    sheet.mergeCells('A2:J2');
+    sheet.getCell('A2').value = state.meta.school;
+    sheet.getCell('A2').font = { bold: true, size: 12 };
+    sheet.getCell('A2').alignment = { horizontal: 'center' };
+
+    sheet.mergeCells('A3:J3');
+    sheet.getCell('A3').value = state.meta.department;
+    sheet.getCell('A3').font = { bold: true, size: 12 };
+    sheet.getCell('A3').alignment = { horizontal: 'center' };
+
+    sheet.mergeCells('A4:J4');
+    sheet.getCell('A4').value = sem;
+    sheet.getCell('A4').font = { bold: true, size: 12 };
+    sheet.getCell('A4').alignment = { horizontal: 'center' };
+
+    if (logoBuffer) {
+      try {
+        const imageId = workbook.addImage({ buffer: logoBuffer, extension: 'jpg' });
+        sheet.addImage(imageId, { tl: { col: 0.5, row: 0.1 }, ext: { width: 48, height: 48 } });
+      } catch (e) {
+        console.error('Failed to embed logo in Excel:', e);
+      }
+    }
+
+    const headerRow = sheet.getRow(6);
+    ['S/N', 'Reg No', 'Student Name', 'Course Code', 'Course Title', 'Credit Unit', 'Score', 'Grade', 'Grade Point'].forEach((headerText, idx) => {
+      const cell = headerRow.getCell(idx + 1);
+      cell.value = headerText;
+      cell.font = { bold: true, color: { argb: 'FFF3F1E9' } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0B4432' } };
+    });
+
+    data.forEach((row, idx) => {
+      const excelRow = sheet.getRow(7 + idx);
+      Object.values(row).forEach((val, colIdx) => {
+        excelRow.getCell(colIdx + 1).value = val;
+      });
+    });
+
+    sheet.columns.forEach(col => {
+      col.width = 18;
+    });
+  });
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${yearKey} - All Semesters.xlsx`;
   a.click();
   URL.revokeObjectURL(url);
 }

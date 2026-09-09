@@ -246,6 +246,10 @@
   margin-bottom: 16px;
 }
 
+.year-actions {
+  margin-bottom: 16px;
+}
+
 .summary-card {
   background: var(--line-soft);
   border-radius: 8px;
