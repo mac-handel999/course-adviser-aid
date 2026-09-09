@@ -823,7 +823,8 @@ td.narrow input {
   .toolbar,
   .icon-btn,
   .transcript-search,
-  .app-topbar {
+  .app-topbar,
+  .bottom-tab-bar {
     display: none !important;
   }
 
