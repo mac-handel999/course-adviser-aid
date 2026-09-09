@@ -64,3 +64,38 @@ drop trigger if exists results_set_updated_at on public.results;
 create trigger results_set_updated_at
   before update on public.results
   for each row execute function public.set_updated_at();
+
+-- Adviser-specific settings for the public student portal.
+create table if not exists public.adviser_settings (
+  user_id uuid primary key references auth.users(id),
+  portal_slug text unique not null,
+  passcode_hash text,
+  faculty text default 'SCHOOL OF HEALTH TECHNOLOGY (SOHT)',
+  department text default 'DEPARTMENT OF PUBLIC HEALTH',
+  updated_at timestamptz default now()
+);
+
+alter table public.adviser_settings enable row level security;
+
+-- Primary enforcement is in the Express API routes (server/routes/settings.js),
+-- because the API uses the Supabase service role key which bypasses RLS.
+-- These RLS policies are a secondary safeguard in case the anon key is ever
+-- used to query this table directly, bypassing the API.
+
+drop policy if exists "Authenticated users can read own settings" on public.adviser_settings;
+drop policy if exists "Authenticated users can update own settings" on public.adviser_settings;
+
+create policy "Authenticated users can read own settings"
+  on public.adviser_settings for select
+  to authenticated
+  using (user_id = auth.uid());
+
+create policy "Authenticated users can update own settings"
+  on public.adviser_settings for update
+  to authenticated
+  using (user_id = auth.uid());
+
+drop trigger if exists adviser_settings_set_updated_at on public.adviser_settings;
+create trigger adviser_settings_set_updated_at
+  before update on public.adviser_settings
+  for each row execute function public.set_updated_at();

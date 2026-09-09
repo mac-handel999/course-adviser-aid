@@ -134,6 +134,10 @@
   border: 1px solid rgba(255, 255, 255, 0.25);
 }
 
+.nav-btn.settings {
+  margin-top: 8px;
+}
+
 .content {
   flex: 1;
   padding: 30px 38px;
@@ -648,6 +652,111 @@ td.narrow input {
   display: flex;
   gap: 10px;
   justify-content: flex-end;
+}
+
+/* ---------- settings view ---------- */
+.settings-card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 22px 26px;
+  margin-bottom: 22px;
+}
+
+.settings-card h3 {
+  margin: 0 0 14px 0;
+  font-size: 15px;
+  color: var(--green-deep);
+}
+
+.settings-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: flex-end;
+  margin-bottom: 18px;
+}
+
+.settings-form .meta-field {
+  flex: 1 1 220px;
+}
+
+.settings-form .meta-field label {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .3px;
+  margin-bottom: 4px;
+}
+
+.settings-form .meta-field input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  font-size: 13px;
+  font-family: 'Inter', sans-serif;
+  background: #fff;
+  color: var(--ink);
+}
+
+.settings-form .meta-field input:focus {
+  outline: none;
+  border-color: var(--gold);
+}
+
+.settings-form .meta-field small {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 4px;
+  display: block;
+}
+
+.settings-status {
+  display: block;
+  width: 100%;
+  font-size: 12px;
+  margin-top: 6px;
+}
+
+.settings-link {
+  margin-bottom: 18px;
+}
+
+.settings-link label {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .3px;
+  margin-bottom: 6px;
+}
+
+.link-row {
+  display: flex;
+  gap: 8px;
+}
+
+.link-row input {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  font-size: 13px;
+  background: #fff;
+  color: var(--ink);
+}
+
+.settings-divider {
+  border-top: 1px solid var(--line-soft);
+  margin: 22px 0;
+}
+
+.settings-note {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0 0 12px 0;
 }
 
 @media print {

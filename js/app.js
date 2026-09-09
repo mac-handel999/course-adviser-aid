@@ -26,18 +26,6 @@ let accessToken = null;
 const saveTimers = {};
 let saveIndicatorTimer = null;
 
-/* ===================== GRADING SCALE (5-point) ===================== */
-function gradeInfo(score) {
-  const s = parseFloat(score);
-  if (isNaN(s)) return { grade: '', point: null };
-  if (s >= 70) return { grade: 'A', point: 5 };
-  if (s >= 60) return { grade: 'B', point: 4 };
-  if (s >= 50) return { grade: 'C', point: 3 };
-  if (s >= 45) return { grade: 'D', point: 2 };
-  if (s >= 40) return { grade: 'E', point: 1 };
-  return { grade: 'F', point: 0 };
-}
-
 /* ===================== NAV ===================== */
 function buildNav() {
   const nav = document.getElementById('navGroup');
@@ -47,6 +35,7 @@ function buildNav() {
   });
   html += `<button class="nav-btn transcript" data-view="Transcript" onclick="switchView('Transcript')">Transcript generator</button>`;
   html += `<button class="nav-btn profile" data-view="Profile" onclick="switchView('Profile')">Profile</button>`;
+  html += `<button class="nav-btn settings" data-view="Settings" onclick="switchView('Settings')">Settings</button>`;
   nav.innerHTML = html;
 }
 
@@ -61,6 +50,11 @@ function render() {
   const container = document.getElementById('viewsContainer');
   if (state.currentView === 'Profile') {
     container.innerHTML = renderProfileView();
+    return;
+  }
+  if (state.currentView === 'Settings') {
+    container.innerHTML = renderSettingsView();
+    attachSettingsHandlers();
     return;
   }
   if (state.currentView === 'Transcript') {
@@ -95,14 +89,12 @@ function buildMetaUI() {
     schoolInput.addEventListener('input', e => {
       state.meta.school = e.target.value;
       saveToLocalStorage();
-      render();
     });
   }
   if (deptInput) {
     deptInput.addEventListener('input', e => {
       state.meta.department = e.target.value;
       saveToLocalStorage();
-      render();
     });
   }
 }
@@ -630,6 +622,7 @@ async function initApp() {
       currentUser = session.user;
       accessToken = session.access_token;
       await loadFromApi();
+      await loadSettings();
     } else {
       loadFromLocalStorage();
     }
@@ -682,6 +675,27 @@ function attachTranscriptHandlers() {
   const input = document.getElementById('transcriptRegNo');
   if (input) {
     input.addEventListener('keydown', e => { if (e.key === 'Enter') generateTranscript(); });
+  }
+}
+
+function attachSettingsHandlers() {
+  const saveBtn = document.getElementById('saveSettingsBtn');
+  if (saveBtn) saveBtn.addEventListener('click', saveSettings);
+
+  const passcodeBtn = document.getElementById('savePasscodeBtn');
+  if (passcodeBtn) passcodeBtn.addEventListener('click', savePasscode);
+
+  const copyBtn = document.getElementById('copyLinkBtn');
+  if (copyBtn) {
+    copyBtn.addEventListener('click', () => {
+      const input = document.getElementById('checkLink');
+      if (input) {
+        input.select();
+        document.execCommand('copy');
+        copyBtn.textContent = 'Copied';
+        setTimeout(() => copyBtn.textContent = 'Copy link', 1500);
+      }
+    });
   }
 }
 
@@ -968,6 +982,153 @@ function importAllJSON(event) {
   };
   reader.readAsText(file);
   event.target.value = '';
+}
+
+async function loadSettings() {
+  if (!currentUser || !accessToken) return;
+  try {
+    const data = await apiFetch('/api/settings');
+    if (data) {
+      state.meta.school = data.faculty || state.meta.school;
+      state.meta.department = data.department || state.meta.department;
+      state.meta.portalSlug = data.portal_slug || state.meta.portalSlug;
+      state.meta.passcodeSet = !!data.passcode_set;
+      buildMetaUI();
+    }
+  } catch (err) {
+    console.error('Failed to load settings:', err.message);
+  }
+}
+
+/* ===================== SETTINGS VIEW ===================== */
+function renderSettingsView() {
+  const slug = state.meta.portalSlug || '';
+  const checkUrl = slug ? `check-results.html?portal=${encodeURIComponent(slug)}` : '';
+  return `
+    <div class="letterhead">
+      <img src="assets/futo-logo.jpeg" class="letterhead-logo" alt="FUTO Logo">
+      <h2>${META.university}</h2>
+      <h3>${escHtml(state.meta.school)}</h3>
+      <p>${escHtml(state.meta.department)}</p>
+      <div class="title-row">SETTINGS</div>
+    </div>
+
+    <div class="settings-card">
+      <h3>Portal settings</h3>
+      <div class="settings-form">
+        <div class="meta-field">
+          <label for="settingFaculty">Faculty / School</label>
+          <input id="settingFaculty" value="${escAttr(state.meta.school)}">
+        </div>
+        <div class="meta-field">
+          <label for="settingDepartment">Department</label>
+          <input id="settingDepartment" value="${escAttr(state.meta.department)}">
+        </div>
+        <div class="meta-field">
+          <label for="settingSlug">Portal slug</label>
+          <input id="settingSlug" value="${escAttr(slug)}" placeholder="e.g. mrs-adeyemi-ph">
+          <small>This becomes the public link students use to check results.</small>
+        </div>
+        <button class="btn gold" id="saveSettingsBtn">Save settings</button>
+        <span id="settingsStatus" class="settings-status"></span>
+      </div>
+
+      ${checkUrl ? `
+        <div class="settings-link">
+          <label>Student check link</label>
+          <div class="link-row">
+            <input id="checkLink" value="${escHtml(checkUrl)}" readonly>
+            <button class="btn secondary" id="copyLinkBtn">Copy link</button>
+          </div>
+        </div>
+      ` : ''}
+
+      <div class="settings-divider"></div>
+
+      <h3>Student passcode</h3>
+      <p class="settings-note">Changing the passcode immediately invalidates the old one for all students.</p>
+      <div class="settings-form">
+        <div class="meta-field">
+          <label for="newPasscode">New passcode</label>
+          <input type="password" id="newPasscode" placeholder="Minimum 6 characters">
+        </div>
+        <div class="meta-field">
+          <label for="confirmPasscode">Confirm passcode</label>
+          <input type="password" id="confirmPasscode" placeholder="Repeat passcode">
+        </div>
+        <button class="btn gold" id="savePasscodeBtn">Update passcode</button>
+        <span id="passcodeStatus" class="settings-status"></span>
+      </div>
+    </div>
+  `;
+}
+
+async function saveSettings() {
+  const faculty = document.getElementById('settingFaculty').value.trim();
+  const department = document.getElementById('settingDepartment').value.trim();
+  const portalSlug = document.getElementById('settingSlug').value.trim();
+  const statusEl = document.getElementById('settingsStatus');
+
+  if (!faculty || !department || !portalSlug) {
+    statusEl.textContent = 'All fields are required.';
+    statusEl.style.color = 'var(--red)';
+    return;
+  }
+
+  statusEl.textContent = 'Saving…';
+  statusEl.style.color = 'var(--muted)';
+
+  try {
+    const data = await apiFetch('/api/settings', {
+      method: 'PUT',
+      body: JSON.stringify({ faculty, department, portal_slug: portalSlug })
+    });
+    state.meta.school = data.faculty;
+    state.meta.department = data.department;
+    state.meta.portalSlug = data.portal_slug;
+    statusEl.textContent = 'Saved.';
+    statusEl.style.color = 'var(--ok)';
+    buildMetaUI();
+    render();
+  } catch (err) {
+    statusEl.textContent = err.message || 'Failed to save settings.';
+    statusEl.style.color = 'var(--red)';
+  }
+}
+
+async function savePasscode() {
+  const passcode = document.getElementById('newPasscode').value;
+  const confirm = document.getElementById('confirmPasscode').value;
+  const statusEl = document.getElementById('passcodeStatus');
+
+  if (!passcode || passcode.length < 6) {
+    statusEl.textContent = 'Passcode must be at least 6 characters.';
+    statusEl.style.color = 'var(--red)';
+    return;
+  }
+  if (passcode !== confirm) {
+    statusEl.textContent = 'Passcodes do not match.';
+    statusEl.style.color = 'var(--red)';
+    return;
+  }
+
+  statusEl.textContent = 'Updating…';
+  statusEl.style.color = 'var(--muted)';
+
+  try {
+    await apiFetch('/api/settings/passcode', {
+      method: 'PUT',
+      body: JSON.stringify({ passcode })
+    });
+    state.meta.passcodeSet = true;
+    statusEl.textContent = 'Passcode updated.';
+    statusEl.style.color = 'var(--ok)';
+    document.getElementById('newPasscode').value = '';
+    document.getElementById('confirmPasscode').value = '';
+  } catch (err) {
+    statusEl.textContent = err.message || 'Failed to update passcode.';
+    statusEl.style.color = 'var(--red)';
+  }
 }
 
 /* ===================== PROFILE VIEW ===================== */

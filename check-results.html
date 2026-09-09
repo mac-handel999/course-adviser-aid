@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Check Results — FUTO Public Health Results Portal</title>
+  <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/check-results.css">
+  <script src="js/grading.js"></script>
+</head>
+
+<body>
+  <div class="check-wrap">
+    <div class="check-card">
+      <div class="letterhead-check">
+        <img src="assets/futo-logo.jpeg" class="letterhead-logo" alt="FUTO Logo">
+        <h2>FEDERAL UNIVERSITY OF TECHNOLOGY OWERRI</h2>
+        <h3 id="checkFaculty">Loading…</h3>
+        <p id="checkDepartment">Loading…</p>
+        <div class="title-row">STUDENT RESULTS PORTAL</div>
+      </div>
+
+      <form id="checkForm" class="check-form">
+        <div class="field">
+          <label for="passcode">Passcode</label>
+          <input type="password" id="passcode" required placeholder="Enter passcode">
+        </div>
+        <div class="field">
+          <label for="regNo">Registration / Matric Number</label>
+          <input type="text" id="regNo" required placeholder="e.g. PH/2025/001">
+        </div>
+        <button class="btn gold" type="submit">Check my results</button>
+        <div id="checkError" class="check-error" role="alert"></div>
+      </form>
+
+      <div id="checkResult" class="check-result" style="display:none">
+        <div class="result-header">
+          <div>
+            <div class="hint">Registration Number</div>
+            <div class="value" id="resultRegNo"></div>
+          </div>
+        </div>
+        <div id="resultBlocks"></div>
+        <div class="cgpa-banner">
+          <div>Cumulative Grade Point Average (CGPA)</div>
+          <div class="big" id="resultCgpa"></div>
+        </div>
+        <div class="result-actions">
+          <button class="btn secondary" onclick="window.print()">Print / PDF</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/check-results.js"></script>
+</body>
+
+</html>
