@@ -5,39 +5,48 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Check Results — Advyza</title>
-  <link rel="icon" type="image/png" href="assets/advyza-favicon.png">
+  <link rel="icon" type="image/png" href="/assets/advyza-favicon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/base.css">
-  <link rel="stylesheet" href="css/check-results.css">
-  <script src="js/grading.js"></script>
+  <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/check-results.css">
+  <script src="/js/grading.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
 </head>
 
 <body>
   <div class="check-wrap">
     <div class="check-card">
       <div class="letterhead-check">
-        <img src="assets/advyza-logo.svg" class="letterhead-logo" alt="Advyza Logo">
+        <img src="/assets/futo-logo.jpeg" class="letterhead-logo" alt="FUTO Logo">
         <h2>FEDERAL UNIVERSITY OF TECHNOLOGY OWERRI</h2>
         <h3 id="checkFaculty">Loading…</h3>
         <p id="checkDepartment">Loading…</p>
         <div class="title-row">STUDENT RESULTS PORTAL</div>
       </div>
 
-      <form id="checkForm" class="check-form">
-        <div class="field">
-          <label for="passcode">Passcode</label>
-          <input type="password" id="passcode" required placeholder="Enter passcode">
+      <form id="checkForm" class="check-form" novalidate>
+        <div id="step1" class="step">
+          <div class="field">
+            <label for="passcode">Passcode</label>
+            <input type="password" id="passcode" required placeholder="Enter passcode">
+          </div>
+          <button class="btn gold" type="button" id="continueBtn">Continue</button>
         </div>
-        <div class="field">
-          <label for="regNo">Registration / Matric Number</label>
-          <input type="text" id="regNo" required placeholder="e.g. PH/2025/001">
+
+        <div id="step2" class="step" style="display:none">
+          <div class="field">
+            <label for="regNo">Registration / Matric Number</label>
+            <input type="text" id="regNo" required placeholder="e.g. PH/2025/001">
+          </div>
+          <button class="btn gold" type="submit">Check my results</button>
         </div>
-        <button class="btn gold" type="submit">Check my results</button>
+
         <div id="checkError" class="check-error" role="alert"></div>
       </form>
 
       <div id="checkResult" class="check-result" style="display:none">
+        <div class="watermark">UNOFFICIAL / STUDENT COPY — FOR REFERENCE ONLY</div>
         <div class="result-header">
           <div>
             <div class="hint">Registration Number</div>
@@ -51,12 +60,13 @@
         </div>
         <div class="result-actions">
           <button class="btn secondary" onclick="window.print()">Print / PDF</button>
+          <button class="btn gold" id="excelBtn">Export to Excel</button>
         </div>
       </div>
     </div>
   </div>
 
-  <script src="js/check-results.js"></script>
+  <script src="/js/check-results.js"></script>
 </body>
 
 </html>

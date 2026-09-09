@@ -9,6 +9,12 @@
    static-file servers (VS Code Live Server, python -m http.server, etc.),
    so this script also accepts ?portal=<slug> as a fallback for local
    testing without vercel dev.
+
+   The passcode and regNo are submitted together in one request. This is
+   deliberate: splitting them into two separate server checks would let a
+   student confirm a valid passcode independently of a reg no, which would
+   reopen the enumeration risk the combined generic-error design was built
+   to prevent.
    ========================================================================= */
 
 function getPortalSlug() {
@@ -34,13 +40,36 @@ if (!portalSlug) {
 const checkForm = document.getElementById('checkForm');
 const checkError = document.getElementById('checkError');
 const checkResult = document.getElementById('checkResult');
+const step1 = document.getElementById('step1');
+const step2 = document.getElementById('step2');
+const continueBtn = document.getElementById('continueBtn');
+const passcodeInput = document.getElementById('passcode');
+const regNoInput = document.getElementById('regNo');
+
+function showStep2() {
+  if (!passcodeInput.value.trim()) {
+    checkError.textContent = 'Please enter your passcode.';
+    return;
+  }
+  checkError.textContent = '';
+  step1.style.display = 'none';
+  step2.style.display = 'block';
+  regNoInput.focus();
+}
+
+if (continueBtn) {
+  continueBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    showStep2();
+  });
+}
 
 checkForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   checkError.textContent = '';
 
-  const passcode = document.getElementById('passcode').value;
-  const regNo = document.getElementById('regNo').value.trim();
+  const passcode = passcodeInput.value;
+  const regNo = regNoInput.value.trim();
 
   if (!passcode || !regNo) {
     checkError.textContent = 'Please enter both passcode and registration number.';
@@ -118,3 +147,104 @@ checkForm.addEventListener('submit', async (e) => {
 });
 
 function escHtml(v) { return (v === undefined || v === null) ? '' : String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+/* ===================== EXCEL EXPORT ===================== */
+async function exportResultsExcel() {
+  const regNo = document.getElementById('resultRegNo').textContent;
+  if (!regNo) return;
+
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet('Results');
+
+  sheet.mergeCells('A1:G1');
+  sheet.getCell('A1').value = 'FEDERAL UNIVERSITY OF TECHNOLOGY OWERRI';
+  sheet.getCell('A1').font = { bold: true, size: 14 };
+  sheet.getCell('A1').alignment = { horizontal: 'center' };
+
+  sheet.mergeCells('A2:G2');
+  sheet.getCell('A2').value = document.getElementById('checkFaculty').textContent || '';
+  sheet.getCell('A2').font = { bold: true, size: 12 };
+  sheet.getCell('A2').alignment = { horizontal: 'center' };
+
+  sheet.mergeCells('A3:G3');
+  sheet.getCell('A3').value = document.getElementById('checkDepartment').textContent || '';
+  sheet.getCell('A3').font = { bold: true, size: 12 };
+  sheet.getCell('A3').alignment = { horizontal: 'center' };
+
+  sheet.mergeCells('A4:G4');
+  sheet.getCell('A4').value = 'UNOFFICIAL / STUDENT COPY — FOR REFERENCE ONLY, NOT AN OFFICIAL TRANSCRIPT';
+  sheet.getCell('A4').font = { bold: true, color: { argb: 'FFFF0000' } };
+  sheet.getCell('A4').alignment = { horizontal: 'center' };
+
+  try {
+    const response = await fetch('/assets/futo-logo.jpeg');
+    const blob = await response.blob();
+    const buffer = await blob.arrayBuffer();
+    const imageId = workbook.addImage({ buffer, extension: 'jpg' });
+    sheet.addImage(imageId, { tl: { col: 0.5, row: 0.1 }, ext: { width: 48, height: 48 } });
+  } catch (e) {
+    console.error('Failed to embed logo in Excel:', e);
+  }
+
+  const headers = ['Code', 'Course Title', 'Unit', 'Score', 'Grade', 'Point', 'Semester'];
+  const headerRow = sheet.getRow(6);
+  headers.forEach((header, idx) => {
+    const cell = headerRow.getCell(idx + 1);
+    cell.value = header;
+    cell.font = { bold: true, color: { argb: 'FFF3F1E9' } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0B4432' } };
+  });
+
+  const blocks = {};
+  (document.getElementById('resultBlocks').innerHTML || '').replace(/<div class="t-year-block"><h4>(.*?)<\/h4>((?:<div class="t-sem-label">.*?<\/div>.*?)*)<\/div>/gs, (match, year, semBlocks) => {
+    const semRegex = /<div class="t-sem-label">(.*?)<\/div>.*?<tbody>((?:<tr>.*?<\/tr>)+)<\/tbody>/gs;
+    let semMatch;
+    while ((semMatch = semRegex.exec(semBlocks)) !== null) {
+      const sem = semMatch[1];
+      const rows = semMatch[2];
+      const trRegex = /<tr><td>(.*?)<\/td><td>(.*?)<\/td><td[^>]*>(.*?)<\/td><td[^>]*>(.*?)<\/td><td[^>]*>(.*?)<\/td><td[^>]*>(.*?)<\/td><\/tr>/g;
+      let trMatch;
+      while ((trMatch = trRegex.exec(rows)) !== null) {
+        const [, code, title, unit, score, grade, point] = trMatch;
+        if (!blocks[year]) blocks[year] = {};
+        if (!blocks[year][sem]) blocks[year][sem] = [];
+        blocks[year][sem].push({ code, title, unit, score, grade, point });
+      }
+    }
+    return '';
+  });
+
+  const sortedYears = Object.keys(blocks).sort();
+  let excelRowIdx = 7;
+  sortedYears.forEach(yearKey => {
+    const semesters = Object.keys(blocks[yearKey]).sort();
+    semesters.forEach(sem => {
+      blocks[yearKey][sem].forEach(r => {
+        const excelRow = sheet.getRow(excelRowIdx);
+        excelRow.getCell(1).value = r.code;
+        excelRow.getCell(2).value = r.title;
+        excelRow.getCell(3).value = r.unit;
+        excelRow.getCell(4).value = r.score;
+        excelRow.getCell(5).value = r.grade;
+        excelRow.getCell(6).value = r.point;
+        excelRow.getCell(7).value = `${yearKey} - ${sem}`;
+        excelRowIdx += 1;
+      });
+    });
+  });
+
+  sheet.columns.forEach(col => {
+    col.width = 18;
+  });
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `Results - ${regNo} (Student Copy).xlsx`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+document.getElementById('excelBtn').addEventListener('click', exportResultsExcel);
