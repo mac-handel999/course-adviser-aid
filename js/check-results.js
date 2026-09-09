@@ -5,8 +5,7 @@
    registration number. No Supabase auth required.
    ========================================================================= */
 
-const params = new URLSearchParams(window.location.search);
-const portalSlug = (params.get('portal') || '').trim();
+const portalSlug = (window.location.pathname || '').split('/').filter(Boolean).pop() || '';
 
 if (!portalSlug) {
   document.getElementById('checkFaculty').textContent = 'Invalid portal link.';

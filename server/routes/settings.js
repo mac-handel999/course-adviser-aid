@@ -3,6 +3,7 @@ const router = express.Router();
 const supabaseAdmin = require('../lib/supabaseAdmin');
 const requireAuth = require('../middleware/requireAuth');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 
 router.use(requireAuth);
 
@@ -14,6 +15,10 @@ function slugify(str) {
     .replace(/^-+|-+$/g, '');
 }
 
+function generateRandomSuffix() {
+  return crypto.randomBytes(2).toString('hex').slice(0, 4);
+}
+
 function isSlugUnique(slug, excludeUserId) {
   return supabaseAdmin
     .from('adviser_settings')
@@ -23,7 +28,7 @@ function isSlugUnique(slug, excludeUserId) {
     .maybeSingle();
 }
 
-async function ensureSettingsRow(userId, email) {
+async function ensureSettingsRow(userId, email, userMetadata) {
   const { data: existing, error: existingError } = await supabaseAdmin
     .from('adviser_settings')
     .select('*')
@@ -33,12 +38,25 @@ async function ensureSettingsRow(userId, email) {
   if (existingError) throw existingError;
   if (existing) return existing;
 
-  const baseSlug = slugify(email || `user-${userId}`);
-  let slug = baseSlug;
+  const fullName = (userMetadata && userMetadata.full_name) ? String(userMetadata.full_name).trim() : '';
+  const baseName = fullName || (email ? String(email).split('@')[0] : `user-${userId}`);
+  const baseSlug = slugify(baseName) || `user-${userId}`;
+
+  let slug = `${baseSlug}-${generateRandomSuffix()}`;
   let counter = 1;
-  while (true) {
+  const maxAttempts = 8;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const { data: slugCheck } = await isSlugUnique(slug, userId);
     if (!slugCheck) break;
+    slug = `${baseSlug}-${generateRandomSuffix()}`;
+    if (attempt === maxAttempts - 1) {
+      slug = `${baseSlug}-${counter}`;
+      counter += 1;
+    }
+  }
+
+  const { data: uniqueCheck } = await isSlugUnique(slug, userId);
+  while (uniqueCheck && counter < 1000) {
     slug = `${baseSlug}-${counter}`;
     counter += 1;
   }
@@ -60,7 +78,7 @@ async function ensureSettingsRow(userId, email) {
 
 router.get('/', async (req, res) => {
   try {
-    const settings = await ensureSettingsRow(req.user.id, req.user.email);
+    const settings = await ensureSettingsRow(req.user.id, req.user.email, req.user.user_metadata);
     res.json({
       portal_slug: settings.portal_slug,
       faculty: settings.faculty,

@@ -1003,7 +1003,7 @@ async function loadSettings() {
 /* ===================== SETTINGS VIEW ===================== */
 function renderSettingsView() {
   const slug = state.meta.portalSlug || '';
-  const checkUrl = slug ? `check-results.html?portal=${encodeURIComponent(slug)}` : '';
+  const checkUrl = slug ? `${window.location.origin}/students-results/${encodeURIComponent(slug)}` : '';
   return `
     <div class="letterhead">
       <img src="assets/futo-logo.jpeg" class="letterhead-logo" alt="FUTO Logo">
