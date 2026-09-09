@@ -1,5 +1,5 @@
 /* =========================================================================
-   FUTO Public Health Results Portal — student check results page
+   Advyza — student check results page
 
    Public lookup via /api/public/portal/:slug/lookup with passcode +
    registration number. No Supabase auth required.

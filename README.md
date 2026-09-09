@@ -1,8 +1,11 @@
-# FUTO Public Health Results Portal
+# Advyza
 
-A results & transcript portal for the Department of Public Health at FUTO:
-a static frontend, an Express API, Supabase for auth + storage, deployed
-on Vercel.
+Advyza is a results and transcript management tool for course advisers at
+FUTO. It lets advisers enter results by year and semester, auto-grade and
+total them, generate transcripts, and export to Excel or PDF.
+
+It is built as a static frontend with an Express API, Supabase for
+authentication and storage, and is deployed on Vercel.
 
 ## Architecture
 

@@ -97,6 +97,19 @@
   overflow-y: auto;
 }
 
+.account-nav {
+  margin-top: auto;
+  padding: 10px 10px 0 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.account-nav .nav-label {
+  font-size: 10.5px;
+  color: #9FB3A5;
+  padding: 10px 10px 6px 10px;
+  letter-spacing: .4px;
+}
+
 .nav-label {
   font-size: 10.5px;
   color: #9FB3A5;
@@ -759,6 +772,49 @@ td.narrow input {
   margin: 0 0 12px 0;
 }
 
+/* ---------- mobile bottom tab bar ---------- */
+.bottom-tab-bar {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--green-deep);
+  border-top: 1px solid rgba(255, 255, 255, 0.18);
+  padding: 6px 0;
+  z-index: 50;
+}
+
+.bottom-tab-bar .tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  background: none;
+  border: none;
+  color: #B9CDC0;
+  font-size: 10.5px;
+  font-family: 'Inter', sans-serif;
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.bottom-tab-bar .tab svg {
+  width: 22px;
+  height: 22px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.bottom-tab-bar .tab.active {
+  color: var(--gold);
+}
+
 @media print {
 
   #reportSettings,
@@ -790,6 +846,7 @@ td.narrow input {
 @media (max-width: 860px) {
   #app {
     flex-direction: column;
+    padding-bottom: 64px;
   }
 
   .sidebar {
@@ -800,6 +857,10 @@ td.narrow input {
   }
 
   .sidebar .sync-status {
+    display: none;
+  }
+
+  .account-nav {
     display: none;
   }
 
@@ -833,6 +894,10 @@ td.narrow input {
 
   .meta-field input {
     min-width: auto;
+  }
+
+  .bottom-tab-bar {
+    display: flex;
   }
 }
 

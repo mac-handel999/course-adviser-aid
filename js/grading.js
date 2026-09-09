@@ -1,5 +1,5 @@
 /* =========================================================================
-   FUTO Public Health Results Portal — shared grading logic
+   Advyza — shared grading logic
 
    Grading scale (5-point):
    Score >= 70  -> A (5)

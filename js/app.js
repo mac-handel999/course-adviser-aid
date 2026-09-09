@@ -1,5 +1,5 @@
 /* =========================================================================
-   FUTO Public Health Results Portal — app logic
+   Advyza — app logic
 
    Signed-in users: edits are saved through the Express API to the Supabase
    `results` table (see server/routes/results.js and sql/schema.sql).
@@ -29,19 +29,27 @@ let saveIndicatorTimer = null;
 /* ===================== NAV ===================== */
 function buildNav() {
   const nav = document.getElementById('navGroup');
+  if (!nav) return;
   let html = '<div class="nav-label">RESULT SHEETS</div>';
   YEAR_KEYS.forEach(y => {
     html += `<button class="nav-btn" data-view="${y}" onclick="switchView('${y}')">${y}</button>`;
   });
-  html += `<button class="nav-btn transcript" data-view="Transcript" onclick="switchView('Transcript')">Transcript generator</button>`;
-  html += `<button class="nav-btn profile" data-view="Profile" onclick="switchView('Profile')">Profile</button>`;
-  html += `<button class="nav-btn settings" data-view="Settings" onclick="switchView('Settings')">Settings</button>`;
   nav.innerHTML = html;
+
+  const accountNav = document.getElementById('accountNavGroup');
+  if (accountNav) {
+    let accountHtml = '<div class="nav-label">ACCOUNT</div>';
+    accountHtml += `<button class="nav-btn transcript" data-view="Transcript" onclick="switchView('Transcript')">Transcript generator</button>`;
+    accountHtml += `<button class="nav-btn profile" data-view="Profile" onclick="switchView('Profile')">Profile</button>`;
+    accountHtml += `<button class="nav-btn settings" data-view="Settings" onclick="switchView('Settings')">Settings</button>`;
+    accountNav.innerHTML = accountHtml;
+  }
 }
 
 function switchView(view) {
   state.currentView = view;
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+  document.querySelectorAll('.bottom-tab-bar .tab').forEach(t => t.classList.toggle('active', t.dataset.view === view));
   render();
 }
 
@@ -344,7 +352,7 @@ async function handleImportFile(input, yearKey, sem) {
 function renderYearView(yearKey) {
   let html = `
     <div class="letterhead">
-      <img src="assets/futo-logo.jpeg" class="letterhead-logo" alt="FUTO Logo">
+      <img src="assets/advyza-logo.svg" class="letterhead-logo" alt="Advyza Logo">
       <h2>${META.university}</h2>
       <h3>${escHtml(state.meta.school)}</h3>
       <p>${escHtml(state.meta.department)}</p>
@@ -648,7 +656,7 @@ function refreshSummary(yearKey, sem) {
 function renderTranscriptView() {
   return `
     <div class="letterhead">
-      <img src="assets/futo-logo.jpeg" class="letterhead-logo" alt="FUTO Logo">
+      <img src="assets/advyza-logo.svg" class="letterhead-logo" alt="Advyza Logo">
       <h2>${META.university}</h2>
       <h3>${escHtml(state.meta.school)}</h3>
       <p>${escHtml(state.meta.department)}</p>
@@ -772,7 +780,7 @@ function generateTranscript() {
 /* ===================== EXCEL EXPORT ===================== */
 async function getLogoBuffer() {
   try {
-    const response = await fetch('assets/futo-logo.jpeg');
+    const response = await fetch('assets/advyza-logo.png');
     const blob = await response.blob();
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -1006,7 +1014,7 @@ function renderSettingsView() {
   const checkUrl = slug ? `${window.location.origin}/students-results/${encodeURIComponent(slug)}` : '';
   return `
     <div class="letterhead">
-      <img src="assets/futo-logo.jpeg" class="letterhead-logo" alt="FUTO Logo">
+      <img src="assets/advyza-logo.svg" class="letterhead-logo" alt="Advyza Logo">
       <h2>${META.university}</h2>
       <h3>${escHtml(state.meta.school)}</h3>
       <p>${escHtml(state.meta.department)}</p>
@@ -1137,7 +1145,7 @@ function renderProfileView() {
   const email = currentUser?.email || 'Not available';
   return `
     <div class="letterhead">
-      <img src="assets/futo-logo.jpeg" class="letterhead-logo" alt="FUTO Logo">
+      <img src="assets/advyza-logo.svg" class="letterhead-logo" alt="Advyza Logo">
       <h2>${META.university}</h2>
       <h3>${escHtml(state.meta.school)}</h3>
       <p>${escHtml(state.meta.department)}</p>

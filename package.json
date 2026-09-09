@@ -1,8 +1,8 @@
 {
-  "name": "futo-public-health-results-portal",
+  "name": "advyza",
   "version": "1.0.0",
   "private": true,
-  "description": "Results & transcript portal for FUTO Department of Public Health",
+  "description": "Advyza — results and transcript management for FUTO course advisers",
   "scripts": {
     "dev": "node server.js",
     "start": "node server.js"
