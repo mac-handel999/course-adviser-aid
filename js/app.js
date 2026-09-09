@@ -376,7 +376,7 @@ async function handleImportFile(input, yearKey, sem) {
       return;
     }
 
-    showImportPreview(parsed, yearKey, sem);
+    renderImportPreview(parsed, yearKey, sem);
   } catch (err) {
     alert(err.message || 'Failed to import file.');
   } finally {
