@@ -3,82 +3,13 @@ const router = express.Router();
 const supabaseAdmin = require('../lib/supabaseAdmin');
 const requireAuth = require('../middleware/requireAuth');
 const bcrypt = require('bcryptjs');
-const crypto = require('crypto');
+const { getOrCreateAdviserSettings, isSlugUnique } = require('../lib/adviserSettings');
 
 router.use(requireAuth);
 
-function slugify(str) {
-  return String(str || '')
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
-
-function generateRandomSuffix() {
-  return crypto.randomBytes(2).toString('hex').slice(0, 4);
-}
-
-function isSlugUnique(slug, excludeUserId) {
-  return supabaseAdmin
-    .from('adviser_settings')
-    .select('user_id')
-    .neq('user_id', excludeUserId)
-    .eq('portal_slug', slug)
-    .maybeSingle();
-}
-
-async function ensureSettingsRow(userId, email, userMetadata) {
-  const { data: existing, error: existingError } = await supabaseAdmin
-    .from('adviser_settings')
-    .select('*')
-    .eq('user_id', userId)
-    .maybeSingle();
-
-  if (existingError) throw existingError;
-  if (existing) return existing;
-
-  const fullName = (userMetadata && userMetadata.full_name) ? String(userMetadata.full_name).trim() : '';
-  const baseName = fullName || (email ? String(email).split('@')[0] : `user-${userId}`);
-  const baseSlug = slugify(baseName) || `user-${userId}`;
-
-  let slug = `${baseSlug}-${generateRandomSuffix()}`;
-  let counter = 1;
-  const maxAttempts = 8;
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const { data: slugCheck } = await isSlugUnique(slug, userId);
-    if (!slugCheck) break;
-    slug = `${baseSlug}-${generateRandomSuffix()}`;
-    if (attempt === maxAttempts - 1) {
-      slug = `${baseSlug}-${counter}`;
-      counter += 1;
-    }
-  }
-
-  const { data: uniqueCheck } = await isSlugUnique(slug, userId);
-  while (uniqueCheck && counter < 1000) {
-    slug = `${baseSlug}-${counter}`;
-    counter += 1;
-  }
-
-  const { data, error } = await supabaseAdmin
-    .from('adviser_settings')
-    .insert({
-      user_id: userId,
-      portal_slug: slug,
-      faculty: 'SCHOOL OF HEALTH TECHNOLOGY (SOHT)',
-      department: 'DEPARTMENT OF PUBLIC HEALTH'
-    })
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
-}
-
 router.get('/', async (req, res) => {
   try {
-    const settings = await ensureSettingsRow(req.user.id, req.user.email, req.user.user_metadata);
+    const settings = await getOrCreateAdviserSettings(req.user.id, req.user.email, req.user.user_metadata);
     res.json({
       portal_slug: settings.portal_slug,
       faculty: settings.faculty,
@@ -103,20 +34,21 @@ router.put('/', async (req, res) => {
       return res.status(400).json({ error: 'portal_slug must contain only lowercase letters, numbers, and hyphens.' });
     }
 
-    const { data: existing, error: existingError } = await isSlugUnique(slug, req.user.id);
-    if (existingError) throw existingError;
-    if (existing) {
+    const unique = await isSlugUnique(slug, req.user.id);
+    if (!unique) {
       return res.status(409).json({ error: 'That portal slug is already in use by another adviser.' });
     }
 
+    await getOrCreateAdviserSettings(req.user.id, req.user.email, req.user.user_metadata);
+
     const { data, error } = await supabaseAdmin
       .from('adviser_settings')
-      .upsert({
-        user_id: req.user.id,
+      .update({
         portal_slug: slug,
         faculty: String(faculty).trim(),
-      department: String(department).trim()
-      }, { onConflict: 'user_id' })
+        department: String(department).trim()
+      })
+      .eq('user_id', req.user.id)
       .select()
       .single();
 
@@ -148,12 +80,12 @@ router.put('/passcode', async (req, res) => {
 
     const hash = await bcrypt.hash(String(passcode), 10);
 
+    await getOrCreateAdviserSettings(req.user.id, req.user.email, req.user.user_metadata);
+
     const { error } = await supabaseAdmin
       .from('adviser_settings')
-      .upsert({
-        user_id: req.user.id,
-        passcode_hash: hash
-      }, { onConflict: 'user_id' });
+      .update({ passcode_hash: hash })
+      .eq('user_id', req.user.id);
 
     if (error) throw error;
 
@@ -163,5 +95,13 @@ router.put('/passcode', async (req, res) => {
     res.status(500).json({ error: 'Failed to update passcode' });
   }
 });
+
+function slugify(str) {
+  return String(str || '')
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
 
 module.exports = router;
