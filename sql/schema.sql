@@ -1,4 +1,5 @@
 -- Run this once in the Supabase SQL editor (Project > SQL Editor > New query).
+-- Safe to re-run against an existing project — all statements are idempotent.
 
 create extension if not exists pgcrypto;
 
@@ -16,6 +17,13 @@ create table if not exists public.results (
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
+
+-- Preserve results even if the owning adviser's account is later deleted
+-- (e.g. resignation, handoff to a new adviser) rather than losing the data.
+alter table public.results drop constraint if exists results_created_by_fkey;
+alter table public.results
+  add constraint results_created_by_fkey
+  foreign key (created_by) references auth.users(id) on delete set null;
 
 alter table public.results enable row level security;
 
@@ -75,6 +83,12 @@ create table if not exists public.adviser_settings (
   updated_at timestamptz default now()
 );
 
+-- Config data belongs solely to its adviser — clean it up if the account goes.
+alter table public.adviser_settings drop constraint if exists adviser_settings_user_id_fkey;
+alter table public.adviser_settings
+  add constraint adviser_settings_user_id_fkey
+  foreign key (user_id) references auth.users(id) on delete cascade;
+
 alter table public.adviser_settings enable row level security;
 
 -- Primary enforcement is in the Express API routes (server/routes/settings.js),
@@ -83,15 +97,27 @@ alter table public.adviser_settings enable row level security;
 -- used to query this table directly, bypassing the API.
 
 drop policy if exists "Authenticated users can read own settings" on public.adviser_settings;
+drop policy if exists "Authenticated users can insert own settings" on public.adviser_settings;
 drop policy if exists "Authenticated users can update own settings" on public.adviser_settings;
+drop policy if exists "Authenticated users can delete own settings" on public.adviser_settings;
 
 create policy "Authenticated users can read own settings"
   on public.adviser_settings for select
   to authenticated
   using (user_id = auth.uid());
 
+create policy "Authenticated users can insert own settings"
+  on public.adviser_settings for insert
+  to authenticated
+  with check (user_id = auth.uid());
+
 create policy "Authenticated users can update own settings"
   on public.adviser_settings for update
+  to authenticated
+  using (user_id = auth.uid());
+
+create policy "Authenticated users can delete own settings"
+  on public.adviser_settings for delete
   to authenticated
   using (user_id = auth.uid());
 
