@@ -276,7 +276,36 @@ body {
     padding: 20px 18px;
   }
 
+  .letterhead-check {
+    gap: 10px;
+  }
+
+  .letterhead-check .letterhead-logo {
+    width: 36px;
+    height: 36px;
+  }
+
   .letterhead-check h2 {
     font-size: 14px;
+  }
+
+  .letterhead-check h3 {
+    font-size: 11px;
+  }
+
+  .letterhead-check p {
+    font-size: 10px;
+  }
+
+  .letterhead-check .title-row {
+    font-size: 10px;
+  }
+
+  .check-result {
+    overflow-x: auto;
+  }
+
+  .check-result table {
+    min-width: 520px;
   }
 }

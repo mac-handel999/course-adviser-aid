@@ -411,6 +411,18 @@ nav.main-nav a:hover {
   color: var(--muted);
 }
 
+@media (max-width: 640px) {
+  .site-footer .wrap {
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .site-footer .cols {
+    gap: 24px;
+    flex-direction: column;
+  }
+}
+
 /* ---------- auth pages ---------- */
 .auth-wrap {
   min-height: calc(100vh - 200px);

@@ -931,7 +931,9 @@ td.narrow input {
     width: 100%;
     flex-direction: row;
     overflow-x: auto;
-    padding: 12px;
+    padding: 10px;
+    align-items: center;
+    gap: 6px;
   }
 
   .sidebar .sync-status {
@@ -939,12 +941,36 @@ td.narrow input {
   }
 
   .account-nav {
+    display: flex;
+    flex-direction: row;
+    margin-top: 0;
+    padding: 0;
+    border-top: none;
+    border-left: 1px solid rgba(255, 255, 255, 0.18);
+    padding-left: 10px;
+    flex-shrink: 0;
+  }
+
+  .account-nav .nav-label {
     display: none;
+  }
+
+  .account-nav .nav-btn {
+    white-space: nowrap;
+    padding: 6px 10px;
+    font-size: 12px;
   }
 
   .nav-group {
     display: flex;
     padding: 0;
+    flex-shrink: 0;
+  }
+
+  .nav-btn {
+    white-space: nowrap;
+    padding: 6px 10px;
+    font-size: 12px;
   }
 
   .content {
@@ -1015,5 +1041,56 @@ td.narrow input {
 
   .meta-field input {
     width: 100%;
+  }
+
+  .letterhead {
+    gap: 10px;
+  }
+
+  .letterhead-logo {
+    width: 40px;
+    height: 40px;
+  }
+
+  .letterhead h2 {
+    font-size: 14px;
+  }
+
+  .letterhead h3 {
+    font-size: 11px;
+  }
+
+  .letterhead p {
+    font-size: 10px;
+  }
+
+  .letterhead .title-row {
+    font-size: 11px;
+  }
+
+  .summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .semester {
+    overflow-x: auto;
+  }
+
+  .semester table {
+    min-width: 720px;
+  }
+
+  .cum-table-wrap {
+    margin: 0 -14px;
+    padding: 0 14px;
+  }
+
+  .transcript-doc {
+    padding: 16px;
+    overflow-x: auto;
+  }
+
+  .transcript-doc table {
+    min-width: 600px;
   }
 }
