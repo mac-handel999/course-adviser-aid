@@ -32,6 +32,13 @@ router.post('/', async (req, res) => {
       created_by: req.user.id
     };
 
+    if (payload.score !== undefined && payload.score !== null) {
+      const score = parseFloat(payload.score);
+      if (isNaN(score) || score < 0 || score > 100) {
+        return res.status(400).json({ error: 'Score must be a number between 0 and 100.' });
+      }
+    }
+
     const { data, error } = await supabaseAdmin
       .from('results')
       .insert(payload)
@@ -54,6 +61,13 @@ router.put('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const payload = req.body;
+
+    if (payload.score !== undefined && payload.score !== null) {
+      const score = parseFloat(payload.score);
+      if (isNaN(score) || score < 0 || score > 100) {
+        return res.status(400).json({ error: 'Score must be a number between 0 and 100.' });
+      }
+    }
 
     const { data: existing, error: existingError } = await supabaseAdmin
       .from('results')

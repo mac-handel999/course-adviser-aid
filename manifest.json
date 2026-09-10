@@ -1,0 +1,21 @@
+{
+  "name": "Advyza",
+  "short_name": "Advyza",
+  "description": "Results and transcript management for FUTO course advisers",
+  "start_url": "/app.html",
+  "display": "standalone",
+  "background_color": "#FAF8F3",
+  "theme_color": "#0B4432",
+  "icons": [
+    {
+      "src": "/assets/advyza-favicon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/assets/advyza-favicon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

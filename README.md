@@ -5,7 +5,8 @@ FUTO. It lets advisers enter results by year and semester, auto-grade and
 total them, generate transcripts, track carry-over retakes, configure
 per-semester credit load targets, view completion progress alongside GPA,
 and export official documents with the department letterhead to Excel or
-PDF.
+PDF. It installs as a PWA on desktop and mobile, works offline, and syncs
+changes automatically when you reconnect.
 
 It is built as a static frontend with an Express API, Supabase for
 authentication and storage, and is deployed on Vercel.
@@ -31,6 +32,20 @@ API instead of straight to Supabase — the API checks the caller's
 Supabase session token, then uses the service role key to talk to
 Postgres. That keeps the powerful service role key off the client
 entirely.
+
+## PWA and offline mode
+
+Advyza is installable as a PWA on Chrome, Edge, and mobile browsers.
+The app shell (HTML, CSS, JS) is cached by a service worker so the
+interface loads even with no internet connection. When the device comes
+back online, any queued changes are synced automatically.
+
+- **Install**: use the browser's "Add to home screen" or "Install app"
+  option.
+- **Offline editing**: edits are saved to localStorage immediately.
+  If you are signed in and offline, API writes are queued and replayed
+  when connectivity returns.
+- **Online indicator**: the top bar shows Online / Offline status.
 
 ## Project layout
 

@@ -6,6 +6,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>App — Advyza</title>
   <link rel="icon" type="image/png" href="assets/advyza-favicon.png">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#0B4432">
   <link rel="stylesheet" href="css/base.css">
   <link rel="stylesheet" href="css/app.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -22,6 +24,7 @@
     </a>
     <div class="right">
       <span class="user-chip" id="userChip">Not signed in</span>
+      <span id="onlineStatus" style="font-size:12px;font-weight:600;"></span>
       <a href="index.html">Home</a>
       <button class="link" onclick="signOut()">Sign out</button>
     </div>
@@ -65,6 +68,25 @@
   <script src="js/api-config.js"></script>
   <script src="js/grading.js"></script>
   <script src="js/app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js');
+    }
+    function updateOnlineStatus() {
+      const el = document.getElementById('onlineStatus');
+      if (!el) return;
+      if (navigator.onLine) {
+        el.textContent = 'Online';
+        el.style.color = 'var(--ok)';
+      } else {
+        el.textContent = 'Offline — changes saved locally';
+        el.style.color = 'var(--red)';
+      }
+    }
+    window.addEventListener('online', updateOnlineStatus);
+    window.addEventListener('offline', updateOnlineStatus);
+    updateOnlineStatus();
+  </script>
 </body>
 
 </html>

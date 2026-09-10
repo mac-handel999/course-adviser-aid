@@ -48,7 +48,12 @@
 
 .app-topbar .right a:hover,
 .app-topbar .right button.link:hover {
-  color: var(--green-deep);
+  color: var(--ink);
+}
+
+#onlineStatus {
+  min-width: 90px;
+  text-align: center;
 }
 
 .user-chip {

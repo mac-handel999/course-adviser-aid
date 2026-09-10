@@ -446,6 +446,7 @@ function renderSemesterBlock(yearKey, sem) {
           <td class="grade-cell grade-${gi.grade}" id="grade-${yearKey}-${sem}-${i}">${gi.grade}</td>
           <td class="point-cell" id="point-${yearKey}-${sem}-${i}">${gi.point === null ? '' : gi.point}</td>
           <td class="narrow" style="text-align:center"><input type="checkbox" ${r.isCarryover ? 'checked' : ''} onchange="updateCarryover('${yearKey}','${sem}',${i},this.checked)" title="Carry-over retake"></td>
+          <td><span id="score-warn-${yearKey}-${sem}-${i}" style="color:var(--red);font-size:11px"></span></td>
           <td><button class="icon-btn" title="Delete row" onclick="deleteRow('${yearKey}','${sem}',${i})">&#10005;</button></td>
         </tr>
       `;
@@ -539,7 +540,16 @@ function updateCell(yearKey, sem, idx, field, value) {
 }
 
 function updateScore(yearKey, sem, idx, value) {
-  state.years[yearKey][sem][idx].score = value;
+  const num = parseFloat(value);
+  const row = state.years[yearKey][sem][idx];
+  if (value !== '' && (!isNaN(num) && num > 100)) {
+    const warn = document.getElementById(`score-warn-${yearKey}-${sem}-${idx}`);
+    if (warn) { warn.textContent = 'Score cannot exceed 100.'; warn.style.color = 'var(--red)'; }
+    return;
+  }
+  const warn = document.getElementById(`score-warn-${yearKey}-${sem}-${idx}`);
+  if (warn) { warn.textContent = ''; }
+  row.score = value;
   const gi = gradeInfo(value);
   const gradeCell = document.getElementById(`grade-${yearKey}-${sem}-${idx}`);
   const pointCell = document.getElementById(`point-${yearKey}-${sem}-${idx}`);
@@ -586,6 +596,15 @@ function scheduleSave(yearKey, sem, idx) {
 
 async function apiFetch(path, options = {}) {
   const url = API_BASE ? `${API_BASE}${path}` : path;
+
+  if (!navigator.onLine && options.method && options.method !== 'GET') {
+    const queue = getOfflineQueue();
+    queue.push({ url, options, timestamp: Date.now() });
+    setOfflineQueue(queue);
+    updateSyncUI();
+    return;
+  }
+
   const res = await fetch(url, {
     ...options,
     headers: {
@@ -600,6 +619,42 @@ async function apiFetch(path, options = {}) {
   }
   if (res.status === 204) return null;
   return res.json();
+}
+
+function getOfflineQueue() {
+  try {
+    const data = localStorage.getItem('advyza_offline_queue');
+    return data ? JSON.parse(data) : [];
+  } catch {
+    return [];
+  }
+}
+
+function setOfflineQueue(queue) {
+  localStorage.setItem('advyza_offline_queue', JSON.stringify(queue));
+}
+
+async function replayOfflineQueue() {
+  const queue = getOfflineQueue();
+  if (!queue.length) return;
+
+  const remaining = [];
+  for (const item of queue) {
+    try {
+      await fetch(item.url, item.options);
+    } catch {
+      remaining.push(item);
+    }
+  }
+
+  setOfflineQueue(remaining);
+  if (remaining.length === 0) {
+    updateSyncUI();
+    if (currentUser && accessToken) {
+      await loadFromApi();
+      render();
+    }
+  }
 }
 
 async function saveRowRemote(yearKey, sem, idx) {
@@ -708,6 +763,12 @@ async function initApp() {
   }
   updateSyncUI();
   switchView('Year 1');
+
+  window.addEventListener('online', () => {
+    updateSyncUI();
+    replayOfflineQueue();
+  });
+  window.addEventListener('offline', updateSyncUI);
 }
 
 async function signOut() {
