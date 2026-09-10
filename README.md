@@ -1,4 +1,4 @@
-# Advyza
+# Cos Advyza
 
 Advyza is a results and transcript management tool for course advisers at
 FUTO. It lets advisers enter results by year and semester, auto-grade and

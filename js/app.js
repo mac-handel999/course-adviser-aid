@@ -95,40 +95,6 @@ function render() {
   }
 }
 
-/* ===================== META / REPORT SETTINGS ===================== */
-function buildMetaUI() {
-  const panel = document.getElementById('reportSettings');
-  if (!panel) return;
-  panel.innerHTML = `
-    <div class="report-settings">
-      <strong>Report settings</strong>
-      <div class="meta-field">
-        <label for="metaSchool">Faculty / School</label>
-        <input id="metaSchool" value="${escAttr(state.meta.school)}" placeholder="e.g. SCHOOL OF HEALTH TECHNOLOGY (SOHT)">
-      </div>
-      <div class="meta-field">
-        <label for="metaDepartment">Department</label>
-        <input id="metaDepartment" value="${escAttr(state.meta.department)}" placeholder="e.g. DEPARTMENT OF PUBLIC HEALTH">
-      </div>
-    </div>
-  `;
-
-  const schoolInput = document.getElementById('metaSchool');
-  const deptInput = document.getElementById('metaDepartment');
-  if (schoolInput) {
-    schoolInput.addEventListener('input', e => {
-      state.meta.school = e.target.value;
-      saveToLocalStorage();
-    });
-  }
-  if (deptInput) {
-    deptInput.addEventListener('input', e => {
-      state.meta.department = e.target.value;
-      saveToLocalStorage();
-    });
-  }
-}
-
 /* ===================== LOCAL STORAGE ===================== */
 function saveToLocalStorage() {
   try {
@@ -747,7 +713,6 @@ function updateSyncUI() {
 
 async function initApp() {
   buildNav();
-  buildMetaUI();
   if (supabaseClient) {
     const { data: { session } } = await supabaseClient.auth.getSession();
     if (session) {
@@ -1374,15 +1339,12 @@ function printSemester(yearKey, sem) {
   if (!target) return;
 
   const allSemesters = document.querySelectorAll('.semester');
-  const reportSettings = document.getElementById('reportSettings');
   allSemesters.forEach(el => el.style.display = 'none');
-  if (reportSettings) reportSettings.style.display = 'none';
   target.style.display = 'block';
   target.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   const restore = () => {
     allSemesters.forEach(el => el.style.display = '');
-    if (reportSettings) reportSettings.style.display = '';
   };
 
   if (window.matchMedia) {
@@ -1414,7 +1376,6 @@ function importAllJSON(event) {
       const loaded = JSON.parse(e.target.result);
       if (loaded && loaded.years) {
         state = loaded;
-        buildMetaUI();
         saveToLocalStorage();
         render();
         alert('Data loaded successfully.');
@@ -1438,7 +1399,6 @@ async function loadSettings() {
       state.meta.department = data.department || state.meta.department;
       state.meta.portalSlug = data.portal_slug || state.meta.portalSlug;
       state.meta.passcodeSet = !!data.passcode_set;
-      buildMetaUI();
     }
   } catch (err) {
     console.error('Failed to load settings:', err.message);
@@ -1557,7 +1517,6 @@ async function saveSettings() {
     state.meta.portalSlug = data.portal_slug;
     statusEl.textContent = 'Saved.';
     statusEl.style.color = 'var(--ok)';
-    buildMetaUI();
     render();
   } catch (err) {
     statusEl.textContent = err.message || 'Failed to save settings.';
