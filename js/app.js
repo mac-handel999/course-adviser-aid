@@ -1026,8 +1026,8 @@ async function exportCumulativeExcel() {
     try {
       const imageId = workbook.addImage({ buffer: logoBuffer, extension: 'jpg' });
       sheet.addImage(imageId, { tl: { col: 0.5, row: 0.1 }, ext: { width: 48, height: 48 } });
-      const rightCol = Math.max(codes.length + 4, 8);
-      sheet.addImage(imageId, { tl: { col: rightCol - 1.5, row: 0.1 }, ext: { width: 48, height: 48 } });
+      const rightCol = codes.length + 4;
+      sheet.addImage(imageId, { tl: { col: Math.max(rightCol - 0.5, 7.5), row: 0.1 }, ext: { width: 48, height: 48 } });
     } catch (e) {
       console.error('Failed to embed logo in Excel:', e);
     }
