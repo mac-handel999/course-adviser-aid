@@ -47,7 +47,7 @@ router.post('/portal/:slug/lookup', async (req, res) => {
 
     const { data: results, error: resultsError } = await supabaseAdmin
       .from('results')
-      .select('year, semester, course_code, course_title, credit_unit, score')
+      .select('year, semester, course_code, course_title, credit_unit, score, is_carryover')
       .eq('created_by', settings.user_id)
       .ilike('reg_no', trimmedRegNo)
       .order('year', { ascending: true })
@@ -58,16 +58,32 @@ router.post('/portal/:slug/lookup', async (req, res) => {
       return res.status(401).json({ error: 'No results found for that passcode and registration number.' });
     }
 
+    const { data: creditLoad, error: creditLoadError } = await supabaseAdmin
+      .from('credit_load_settings')
+      .select('year, semester, total_units')
+      .eq('user_id', settings.user_id);
+
+    if (creditLoadError) {
+      console.error('Public portal credit load error:', creditLoadError.message);
+    }
+
     if (!results || results.length === 0) {
       return res.status(401).json({ error: 'No results found for that passcode and registration number.' });
     }
+
+    const creditLoadMap = {};
+    (creditLoad || []).forEach(row => {
+      if (!creditLoadMap[row.year]) creditLoadMap[row.year] = {};
+      creditLoadMap[row.year][row.semester] = row.total_units;
+    });
 
     res.json({
       university: 'FEDERAL UNIVERSITY OF TECHNOLOGY OWERRI',
       faculty: settings.faculty,
       department: settings.department,
       regNo: trimmedRegNo,
-      results
+      results,
+      creditLoad: creditLoadMap
     });
   } catch (err) {
     console.error('Public portal server error:', err);

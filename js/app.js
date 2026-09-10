@@ -13,9 +13,9 @@ const META = {
 };
 const YEAR_KEYS = Array.from({ length: 10 }, (_, i) => 'Year ' + (i + 1));
 const SEMESTERS = ['Harmattan Semester', 'Rain Semester'];
-const emptyRow = () => ({ id: null, regNo: '', name: '', code: '', title: '', unit: '', score: '' });
+const emptyRow = () => ({ id: null, regNo: '', name: '', code: '', title: '', unit: '', score: '', isCarryover: false });
 
-let state = { years: {}, currentView: 'Year 1', meta: { school: 'SCHOOL OF HEALTH TECHNOLOGY (SOHT)', department: 'DEPARTMENT OF PUBLIC HEALTH' } };
+let state = { years: {}, currentView: 'Year 1', meta: { school: 'SCHOOL OF HEALTH TECHNOLOGY (SOHT)', department: 'DEPARTMENT OF PUBLIC HEALTH' }, creditLoad: {} };
 YEAR_KEYS.forEach(y => {
   state.years[y] = {};
   SEMESTERS.forEach(s => { state.years[y][s] = [emptyRow()]; });
@@ -25,6 +25,22 @@ let currentUser = null;
 let accessToken = null;
 const saveTimers = {};
 let saveIndicatorTimer = null;
+
+/* ===================== LETTERHEAD ===================== */
+function renderLetterhead(title) {
+  return `
+    <div class="letterhead">
+      <img src="assets/futo-logo.jpeg" class="letterhead-logo" alt="FUTO Logo">
+      <div class="letterhead-center">
+        <h2>${META.university}</h2>
+        <h3>${escHtml(state.meta.school)}</h3>
+        <p>${escHtml(state.meta.department)}</p>
+        <div class="title-row">${escHtml(title)}</div>
+      </div>
+      <img src="assets/futo-logo.jpeg" class="letterhead-logo" alt="FUTO Logo">
+    </div>
+  `;
+}
 
 /* ===================== NAV ===================== */
 function buildNav() {
@@ -40,6 +56,7 @@ function buildNav() {
   if (accountNav) {
     let accountHtml = '<div class="nav-label">ACCOUNT</div>';
     accountHtml += `<button class="nav-btn transcript" data-view="Transcript" onclick="switchView('Transcript')">Transcript generator</button>`;
+    accountHtml += `<button class="nav-btn cumulative" data-view="Cumulative" onclick="switchView('Cumulative')">Cumulative sheet</button>`;
     accountHtml += `<button class="nav-btn profile" data-view="Profile" onclick="switchView('Profile')">Profile</button>`;
     accountHtml += `<button class="nav-btn settings" data-view="Settings" onclick="switchView('Settings')">Settings</button>`;
     accountNav.innerHTML = accountHtml;
@@ -63,6 +80,11 @@ function render() {
   if (state.currentView === 'Settings') {
     container.innerHTML = renderSettingsView();
     attachSettingsHandlers();
+    return;
+  }
+  if (state.currentView === 'Cumulative') {
+    container.innerHTML = renderCumulativeView();
+    attachCumulativeHandlers();
     return;
   }
   if (state.currentView === 'Transcript') {
@@ -386,18 +408,10 @@ async function handleImportFile(input, yearKey, sem) {
 
 /* ===================== YEAR VIEW ===================== */
 function renderYearView(yearKey) {
-  let html = `
-    <div class="letterhead">
-      <img src="assets/futo-logo.jpeg" class="letterhead-logo" alt="FUTO Logo">
-      <h2>${META.university}</h2>
-      <h3>${escHtml(state.meta.school)}</h3>
-      <p>${escHtml(state.meta.department)}</p>
-      <div class="title-row">${yearKey.toUpperCase()} — RESULT COMPUTATION</div>
-    </div>
-    <div class="year-actions">
-      <button class="btn gold" onclick="exportYearExcel('${yearKey}')">Export ${yearKey} to Excel</button>
-    </div>
-  `;
+  let html = renderLetterhead(`${yearKey.toUpperCase()} — RESULT COMPUTATION`);
+  html += `<div class="year-actions">
+    <button class="btn gold" onclick="exportYearExcel('${yearKey}')">Export ${yearKey} to Excel</button>
+  </div>`;
   SEMESTERS.forEach(sem => { html += renderSemesterBlock(yearKey, sem); });
   return html;
 }
@@ -411,25 +425,27 @@ function renderSemesterBlock(yearKey, sem) {
     if (nameA > nameB) return 1;
     return 0;
   });
-  const summary = computeSummary(rows);
+  const summary = computeSummary(rows, yearKey, sem);
 
   let rowsHtml = '';
   if (rows.length === 0) {
-    rowsHtml = `<tr class="empty-row"><td colspan="10">No students added yet — click "Add student row" to begin.</td></tr>`;
+    rowsHtml = `<tr class="empty-row"><td colspan="11">No students added yet — click "Add student row" to begin.</td></tr>`;
   } else {
     rows.forEach((r, i) => {
       const gi = gradeInfo(r.score);
+      const carryBadge = r.isCarryover ? ' <span class="carry-badge">C/O</span>' : '';
       rowsHtml += `
         <tr>
           <td>${i + 1}</td>
           <td><input value="${escAttr(r.regNo)}" placeholder="Reg No" oninput="updateCell('${yearKey}','${sem}',${i},'regNo',this.value)"></td>
           <td><input value="${escAttr(r.name)}" placeholder="Student name" oninput="updateCell('${yearKey}','${sem}',${i},'name',this.value)"></td>
-          <td class="narrow"><input value="${escAttr(r.code)}" placeholder="Code" oninput="updateCell('${yearKey}','${sem}',${i},'code',this.value)"></td>
+          <td class="narrow">${escHtml(r.code)}${carryBadge}</td>
           <td><input value="${escAttr(r.title)}" placeholder="Course title" oninput="updateCell('${yearKey}','${sem}',${i},'title',this.value)"></td>
           <td class="narrow"><input type="number" value="${escAttr(r.unit)}" placeholder="Unit" oninput="updateCell('${yearKey}','${sem}',${i},'unit',this.value)"></td>
           <td class="narrow"><input type="number" value="${escAttr(r.score)}" placeholder="Score" oninput="updateScore('${yearKey}','${sem}',${i},this.value)"></td>
           <td class="grade-cell grade-${gi.grade}" id="grade-${yearKey}-${sem}-${i}">${gi.grade}</td>
           <td class="point-cell" id="point-${yearKey}-${sem}-${i}">${gi.point === null ? '' : gi.point}</td>
+          <td class="narrow" style="text-align:center"><input type="checkbox" ${r.isCarryover ? 'checked' : ''} onchange="updateCarryover('${yearKey}','${sem}',${i},this.checked)" title="Carry-over retake"></td>
           <td><button class="icon-btn" title="Delete row" onclick="deleteRow('${yearKey}','${sem}',${i})">&#10005;</button></td>
         </tr>
       `;
@@ -467,6 +483,7 @@ function renderSemesterBlock(yearKey, sem) {
             <th style="width:8%">Score</th>
             <th style="width:6%">Grade</th>
             <th style="width:6%">Point</th>
+            <th style="width:4%">C/O</th>
             <th style="width:4%"></th>
           </tr>
         </thead>
@@ -487,7 +504,8 @@ function summaryCardsHtml(s) {
 }
 
 /* group semester rows by Reg No -> compute per-student GPA & pass status */
-function computeSummary(rows) {
+function computeSummary(rows, yearKey, sem) {
+  const configuredTotal = (state.creditLoad[yearKey] && state.creditLoad[yearKey][sem]) || null;
   const byReg = {};
   rows.forEach(r => {
     const reg = (r.regNo || '').trim();
@@ -499,17 +517,11 @@ function computeSummary(rows) {
   let complete = 0, incomplete = 0;
   const gpas = [];
   regs.forEach(reg => {
-    const courses = byReg[reg];
-    let totalUnits = 0, totalPoints = 0, hasF = false, hasBlank = false;
-    courses.forEach(c => {
-      const unit = parseFloat(c.unit) || 0;
-      const gi = gradeInfo(c.score);
-      if (gi.grade === 'F') hasF = true;
-      if (gi.grade === '') hasBlank = true;
-      if (gi.point !== null) { totalUnits += unit; totalPoints += unit * gi.point; }
-    });
+    const stats = computeGpaStats(byReg[reg], configuredTotal);
+    const hasF = stats.dedupedRows.some(r => gradeInfo(r.score).grade === 'F');
+    const hasBlank = stats.dedupedRows.some(r => gradeInfo(r.score).grade === '');
     if (hasF) incomplete++; else complete++;
-    if (totalUnits > 0 && !hasBlank) gpas.push(totalPoints / totalUnits);
+    if (stats.gpa !== null) gpas.push(stats.gpa);
   });
   return {
     totalStudents: regs.length,
@@ -536,6 +548,13 @@ function updateScore(yearKey, sem, idx, value) {
   refreshSummary(yearKey, sem);
   saveToLocalStorage();
   scheduleSave(yearKey, sem, idx);
+}
+
+function updateCarryover(yearKey, sem, idx, checked) {
+  state.years[yearKey][sem][idx].isCarryover = !!checked;
+  saveToLocalStorage();
+  scheduleSave(yearKey, sem, idx);
+  render();
 }
 
 function addRow(yearKey, sem) {
@@ -597,7 +616,8 @@ async function saveRowRemote(yearKey, sem, idx) {
     course_code: row.code || null,
     course_title: row.title || null,
     credit_unit: row.unit === '' ? null : parseFloat(row.unit),
-    score: row.score === '' ? null : parseFloat(row.score)
+    score: row.score === '' ? null : parseFloat(row.score),
+    is_carryover: !!row.isCarryover
   };
 
   try {
@@ -643,7 +663,8 @@ async function loadFromApi() {
         code: row.course_code || '',
         title: row.course_title || '',
         unit: row.credit_unit ?? '',
-        score: row.score ?? ''
+        score: row.score ?? '',
+        isCarryover: !!row.is_carryover
       });
     });
 
@@ -697,20 +718,12 @@ async function signOut() {
 function refreshSummary(yearKey, sem) {
   const semSlug = sem.replace(/\s+/g, '-');
   const el = document.getElementById(`summary-${yearKey}-${semSlug}`);
-  if (el) el.innerHTML = summaryCardsHtml(computeSummary(state.years[yearKey][sem]));
+  if (el) el.innerHTML = summaryCardsHtml(computeSummary(state.years[yearKey][sem], yearKey, sem));
 }
 
 /* ===================== TRANSCRIPT VIEW ===================== */
 function renderTranscriptView() {
-  return `
-    <div class="letterhead">
-      <img src="assets/futo-logo.jpeg" class="letterhead-logo" alt="FUTO Logo">
-      <h2>${META.university}</h2>
-      <h3>${escHtml(state.meta.school)}</h3>
-      <p>${escHtml(state.meta.department)}</p>
-      <div class="title-row">STUDENT TRANSCRIPT GENERATOR</div>
-    </div>
-
+  return renderLetterhead('STUDENT TRANSCRIPT GENERATOR') + `
     <div class="transcript-search">
       <div class="field">
         <label>Registration Number</label>
@@ -753,6 +766,45 @@ function attachSettingsHandlers() {
       }
     });
   }
+
+  const creditInputs = document.querySelectorAll('.credit-load-inputs input');
+  const creditTimers = {};
+  creditInputs.forEach(input => {
+    input.addEventListener('input', () => {
+      const year = input.dataset.year;
+      const sem = input.dataset.sem;
+      const statusEl = document.querySelector(`.credit-load-status[data-year="${year}"]`);
+      if (statusEl) {
+        statusEl.textContent = 'Saving…';
+        statusEl.style.color = 'var(--muted)';
+      }
+      clearTimeout(creditTimers[`${year}-${sem}`]);
+      creditTimers[`${year}-${sem}`] = setTimeout(async () => {
+        const value = input.value.trim();
+        if (!value) {
+          if (statusEl) { statusEl.textContent = ''; }
+          return;
+        }
+        const numeric = parseFloat(value);
+        if (isNaN(numeric) || numeric <= 0) {
+          if (statusEl) { statusEl.textContent = 'Must be > 0'; statusEl.style.color = 'var(--red)'; }
+          return;
+        }
+        try {
+          await apiFetch('/api/credit-load', {
+            method: 'PUT',
+            body: JSON.stringify({ year, semester: sem, total_units: numeric })
+          });
+          if (!state.creditLoad[year]) state.creditLoad[year] = {};
+          state.creditLoad[year][sem] = numeric;
+          if (statusEl) { statusEl.textContent = 'Saved'; statusEl.style.color = 'var(--ok)'; }
+          setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 1500);
+        } catch (err) {
+          if (statusEl) { statusEl.textContent = err.message || 'Failed'; statusEl.style.color = 'var(--red)'; }
+        }
+      }, 600);
+    });
+  });
 }
 
 let lastTranscript = null;
@@ -763,10 +815,11 @@ function generateTranscript() {
   if (!regNo) { output.innerHTML = '<p class="no-record">Please enter a registration number.</p>'; return; }
 
   let studentName = '';
-  let cumUnits = 0, cumPoints = 0;
+  let cumConfiguredTotal = 0;
   let yearBlocksHtml = '';
   let foundAny = false;
   const flatRows = [];
+  const allStudentRows = [];
 
   YEAR_KEYS.forEach(yearKey => {
     let yearHasData = false;
@@ -775,24 +828,32 @@ function generateTranscript() {
       const rows = state.years[yearKey][sem].filter(r => (r.regNo || '').trim() === regNo);
       if (rows.length === 0) return;
       yearHasData = true; foundAny = true;
-      let semUnits = 0, semPoints = 0;
+      allStudentRows.push(...rows);
+
+      const configuredTotal = (state.creditLoad[yearKey] && state.creditLoad[yearKey][sem]) || null;
+      if (configuredTotal) cumConfiguredTotal += configuredTotal;
+
+      const stats = computeGpaStats(rows, configuredTotal);
       let tableRows = '';
       rows.forEach(r => {
         if (!studentName && r.name) studentName = r.name;
-        const unit = parseFloat(r.unit) || 0;
         const gi = gradeInfo(r.score);
-        if (gi.point !== null) { semUnits += unit; semPoints += unit * gi.point; cumUnits += unit; cumPoints += unit * gi.point; }
         tableRows += `<tr><td>${escHtml(r.code)}</td><td>${escHtml(r.title)}</td><td style="text-align:center">${escHtml(r.unit)}</td>
           <td style="text-align:center">${escHtml(r.score)}</td><td style="text-align:center;font-weight:600">${gi.grade}</td>
           <td style="text-align:center">${gi.point === null ? '' : gi.point}</td></tr>`;
         flatRows.push({ Year: yearKey, Semester: sem, RegNo: regNo, Name: r.name, Code: r.code, Title: r.title, Unit: r.unit, Score: r.score, Grade: gi.grade, Point: gi.point });
       });
-      const semGPA = semUnits > 0 ? (semPoints / semUnits).toFixed(2) : '—';
+
+      const semGpaText = stats.gpa !== null ? stats.gpa.toFixed(2) : '—';
+      let semTotalsHtml = `<span>Units: <b>${stats.unitsEntered}</b></span><span>Semester GPA: <b>${semGpaText}</b></span>`;
+      if (stats.unitsConfigured !== null) {
+        semTotalsHtml += `<span>Completion: <b>${stats.unitsEntered} of ${stats.unitsConfigured} units (${stats.percentComplete}%)</b></span>`;
+      }
       semHtml += `
         <div class="t-sem-label">${sem}</div>
         <table><thead><tr><th>Code</th><th>Course Title</th><th>Unit</th><th>Score</th><th>Grade</th><th>Point</th></tr></thead>
         <tbody>${tableRows}</tbody></table>
-        <div class="t-totals"><span>Units: <b>${semUnits}</b></span><span>Semester GPA: <b>${semGPA}</b></span></div>
+        <div class="t-totals">${semTotalsHtml}</div>
       `;
     });
     if (yearHasData) {
@@ -808,21 +869,211 @@ function generateTranscript() {
     return;
   }
 
-  const cgpa = cumUnits > 0 ? (cumPoints / cumUnits).toFixed(2) : '—';
+  const cumStats = computeGpaStats(allStudentRows, cumConfiguredTotal || null);
+  const cgpaText = cumStats.gpa !== null ? cumStats.gpa.toFixed(2) : '—';
+  let cgpaHtml = `<div class="cgpa-banner"><div>Cumulative Grade Point Average (CGPA)</div><div class="big">${cgpaText}</div></div>`;
+  if (cumStats.unitsConfigured !== null) {
+    cgpaHtml = `<div class="cgpa-banner"><div>Cumulative Grade Point Average (CGPA)</div><div class="big">${cgpaText}</div><div class="completion">${cumStats.unitsEntered} of ${cumStats.unitsConfigured} units (${cumStats.percentComplete}%)</div></div>`;
+  }
+
   output.innerHTML = `
     <div style="display:flex;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:10px;">
       <div><div class="hint">Registration Number</div><div style="font-size:15px;font-weight:600">${escHtml(regNo)}</div></div>
       <div><div class="hint">Student Name</div><div style="font-size:15px;font-weight:600">${escHtml(studentName) || '—'}</div></div>
     </div>
     ${yearBlocksHtml}
-    <div class="cgpa-banner">
-      <div>Cumulative Grade Point Average (CGPA)</div>
-      <div class="big">${cgpa}</div>
-    </div>
+    ${cgpaHtml}
   `;
   document.getElementById('printBtn').style.display = 'inline-block';
   document.getElementById('excelBtn').style.display = 'inline-block';
-  lastTranscript = { regNo, studentName, cgpa, flatRows };
+  lastTranscript = { regNo, studentName, cgpa: cgpaText, flatRows };
+}
+
+/* ===================== CUMULATIVE RESULT SHEET ===================== */
+let cumState = { yearKey: 'Year 1', sem: 'Harmattan Semester' };
+
+function renderCumulativeView() {
+  const yearKey = cumState.yearKey;
+  const sem = cumState.sem;
+  const rows = state.years[yearKey][sem] || [];
+  const sorted = rows.slice().sort((a, b) => (a.name || '').trim().toLowerCase() < (b.name || '').trim().toLowerCase() ? -1 : 1);
+
+  const codes = Array.from(new Set(rows.map(r => (r.code || '').trim()).filter(Boolean))).sort();
+  const byReg = {};
+  sorted.forEach(r => {
+    const reg = (r.regNo || '').trim();
+    if (!reg) return;
+    if (!byReg[reg]) byReg[reg] = { name: r.name || '', regNo: reg, scores: {} };
+    byReg[reg].scores[r.code] = r;
+  });
+  const students = Object.keys(byReg).map(reg => byReg[reg]).sort((a, b) => (a.name || '').trim().toLowerCase() < (b.name || '').trim().toLowerCase() ? -1 : 1);
+
+  let tableRows = '';
+  students.forEach((stu, idx) => {
+    const fCount = rows.filter(r => (r.regNo || '').trim() === stu.regNo && gradeInfo(r.score).grade === 'F').length;
+    const remark = fCount === 0 ? 'Pass' : `${fCount}F`;
+    let cells = `<td>${idx + 1}</td><td>${escHtml(stu.name)}</td><td>${escHtml(stu.regNo)}</td>`;
+    codes.forEach(code => {
+      const r = stu.scores[code];
+      if (r) {
+        const gi = gradeInfo(r.score);
+        cells += `<td style="text-align:center">${escHtml(r.score)} (${gi.grade})</td>`;
+      } else {
+        cells += `<td style="text-align:center;color:var(--muted)">—</td>`;
+      }
+    });
+    cells += `<td><b>${remark}</b></td>`;
+    tableRows += `<tr>${cells}</tr>`;
+  });
+
+  const yearOptions = YEAR_KEYS.map(y => `<option value="${y}" ${y === yearKey ? 'selected' : ''}>${y}</option>`).join('');
+  const semOptions = SEMESTERS.map(s => `<option value="${s}" ${s === sem ? 'selected' : ''}>${s}</option>`).join('');
+
+  return renderLetterhead('CUMULATIVE RESULT SHEET') + `
+    <div class="cum-toolbar">
+      <div class="cum-toggle">
+        <select id="cumYear">${yearOptions}</select>
+        <select id="cumSem">${semOptions}</select>
+      </div>
+      <div class="cum-actions">
+        <button class="btn secondary" onclick="printCumulative()">Print / PDF</button>
+        <button class="btn gold" onclick="exportCumulativeExcel()">Export to Excel</button>
+      </div>
+    </div>
+
+    <div class="cum-table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:5%">S/N</th>
+            <th style="width:20%">Name</th>
+            <th style="width:15%">Reg No</th>
+            ${codes.map(c => `<th style="width:${Math.max(6, Math.min(12, 100 / codes.length))}%">${escHtml(c)}</th>`).join('')}
+            <th style="width:6%">Remarks</th>
+          </tr>
+        </thead>
+        <tbody>${tableRows || '<tr><td colspan="4">No students added yet.</td></tr>'}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function attachCumulativeHandlers() {
+  const yearSel = document.getElementById('cumYear');
+  const semSel = document.getElementById('cumSem');
+  if (yearSel) {
+    yearSel.addEventListener('change', () => { cumState.yearKey = yearSel.value; render(); });
+  }
+  if (semSel) {
+    semSel.addEventListener('change', () => { cumState.sem = semSel.value; render(); });
+  }
+}
+
+function printCumulative() {
+  const target = document.getElementById('viewsContainer');
+  if (!target) return;
+  const allViews = document.querySelectorAll('.semester, .transcript-doc, .settings-card, .profile-card, .cum-table-wrap');
+  allViews.forEach(el => el.style.display = 'none');
+  const cumWrap = target.querySelector('.cum-table-wrap');
+  if (cumWrap) cumWrap.style.display = 'block';
+  const restore = () => {
+    allViews.forEach(el => el.style.display = '');
+  };
+  window.onafterprint = restore;
+  setTimeout(() => window.print(), 300);
+}
+
+async function exportCumulativeExcel() {
+  const yearKey = cumState.yearKey;
+  const sem = cumState.sem;
+  const rows = state.years[yearKey][sem] || [];
+  const sorted = rows.slice().sort((a, b) => (a.name || '').trim().toLowerCase() < (b.name || '').trim().toLowerCase() ? -1 : 1);
+  const codes = Array.from(new Set(rows.map(r => (r.code || '').trim()).filter(Boolean))).sort();
+  const byReg = {};
+  sorted.forEach(r => {
+    const reg = (r.regNo || '').trim();
+    if (!reg) return;
+    if (!byReg[reg]) byReg[reg] = { name: r.name || '', regNo: reg, scores: {} };
+    byReg[reg].scores[r.code] = r;
+  });
+  const students = Object.keys(byReg).map(reg => byReg[reg]).sort((a, b) => (a.name || '').trim().toLowerCase() < (b.name || '').trim().toLowerCase() ? -1 : 1);
+
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet(sem.replace(/[:\\\/\?\*\[\]]/g, ''));
+
+  sheet.mergeCells('A1:Z1');
+  sheet.getCell('A1').value = META.university;
+  sheet.getCell('A1').font = { bold: true, size: 14 };
+  sheet.getCell('A1').alignment = { horizontal: 'center' };
+
+  sheet.mergeCells('A2:Z2');
+  sheet.getCell('A2').value = state.meta.school;
+  sheet.getCell('A2').font = { bold: true, size: 12 };
+  sheet.getCell('A2').alignment = { horizontal: 'center' };
+
+  sheet.mergeCells('A3:Z3');
+  sheet.getCell('A3').value = state.meta.department;
+  sheet.getCell('A3').font = { bold: true, size: 12 };
+  sheet.getCell('A3').alignment = { horizontal: 'center' };
+
+  sheet.mergeCells('A4:Z4');
+  sheet.getCell('A4').value = `${yearKey} — ${sem}`;
+  sheet.getCell('A4').font = { bold: true, size: 12 };
+  sheet.getCell('A4').alignment = { horizontal: 'center' };
+
+  const logoBuffer = await getLogoBuffer();
+  if (logoBuffer) {
+    try {
+      const imageId = workbook.addImage({ buffer: logoBuffer, extension: 'jpg' });
+      sheet.addImage(imageId, { tl: { col: 0.5, row: 0.1 }, ext: { width: 48, height: 48 } });
+      const rightCol = Math.max(codes.length + 4, 8);
+      sheet.addImage(imageId, { tl: { col: rightCol - 1.5, row: 0.1 }, ext: { width: 48, height: 48 } });
+    } catch (e) {
+      console.error('Failed to embed logo in Excel:', e);
+    }
+  }
+
+  const headerRow = sheet.getRow(6);
+  ['S/N', 'Name', 'Reg No', ...codes].forEach((header, idx) => {
+    const cell = headerRow.getCell(idx + 1);
+    cell.value = header;
+    cell.font = { bold: true, color: { argb: 'FFF3F1E9' } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0B4432' } };
+  });
+  headerRow.getCell(codes.length + 4).value = 'Remarks';
+  headerRow.getCell(codes.length + 4).font = { bold: true, color: { argb: 'FFF3F1E9' } };
+  headerRow.getCell(codes.length + 4).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0B4432' } };
+
+  students.forEach((stu, idx) => {
+    const excelRow = sheet.getRow(7 + idx);
+    const fCount = rows.filter(r => (r.regNo || '').trim() === stu.regNo && gradeInfo(r.score).grade === 'F').length;
+    const remark = fCount === 0 ? 'Pass' : `${fCount}F`;
+    excelRow.getCell(1).value = idx + 1;
+    excelRow.getCell(2).value = stu.name;
+    excelRow.getCell(3).value = stu.regNo;
+    codes.forEach((code, ci) => {
+      const r = stu.scores[code];
+      const cell = excelRow.getCell(4 + ci);
+      if (r) {
+        const gi = gradeInfo(r.score);
+        cell.value = `${r.score} (${gi.grade})`;
+      } else {
+        cell.value = '—';
+      }
+    });
+    excelRow.getCell(4 + codes.length).value = remark;
+  });
+
+  sheet.columns.forEach(col => { col.width = 18; });
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `Cumulative - ${yearKey} - ${sem}.xlsx`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 /* ===================== EXCEL EXPORT ===================== */
@@ -873,6 +1124,7 @@ async function exportSemesterExcel(yearKey, sem) {
     try {
       const imageId = workbook.addImage({ buffer: logoBuffer, extension: 'jpg' });
       sheet.addImage(imageId, { tl: { col: 0.5, row: 0.1 }, ext: { width: 48, height: 48 } });
+      sheet.addImage(imageId, { tl: { col: 9.5, row: 0.1 }, ext: { width: 48, height: 48 } });
     } catch (e) {
       console.error('Failed to embed logo in Excel:', e);
     }
@@ -946,6 +1198,7 @@ async function exportYearExcel(yearKey) {
       try {
         const imageId = workbook.addImage({ buffer: logoBuffer, extension: 'jpg' });
         sheet.addImage(imageId, { tl: { col: 0.5, row: 0.1 }, ext: { width: 48, height: 48 } });
+        sheet.addImage(imageId, { tl: { col: 9.5, row: 0.1 }, ext: { width: 48, height: 48 } });
       } catch (e) {
         console.error('Failed to embed logo in Excel:', e);
       }
@@ -1008,6 +1261,7 @@ async function exportTranscriptExcel() {
     try {
       const imageId = workbook.addImage({ buffer: logoBuffer, extension: 'jpg' });
       sheet.addImage(imageId, { tl: { col: 0.5, row: 0.1 }, ext: { width: 48, height: 48 } });
+      sheet.addImage(imageId, { tl: { col: 10.5, row: 0.1 }, ext: { width: 48, height: 48 } });
     } catch (e) {
       console.error('Failed to embed logo in Excel:', e);
     }
@@ -1128,21 +1382,24 @@ async function loadSettings() {
   } catch (err) {
     console.error('Failed to load settings:', err.message);
   }
+
+  try {
+    const creditData = await apiFetch('/api/credit-load');
+    state.creditLoad = {};
+    (creditData || []).forEach(row => {
+      if (!state.creditLoad[row.year]) state.creditLoad[row.year] = {};
+      state.creditLoad[row.year][row.semester] = row.total_units;
+    });
+  } catch (err) {
+    console.error('Failed to load credit load settings:', err.message);
+  }
 }
 
 /* ===================== SETTINGS VIEW ===================== */
 function renderSettingsView() {
   const slug = state.meta.portalSlug || '';
   const checkUrl = slug ? `${window.location.origin}/students-results/${encodeURIComponent(slug)}` : '';
-  return `
-    <div class="letterhead">
-      <img src="assets/futo-logo.jpeg" class="letterhead-logo" alt="FUTO Logo">
-      <h2>${META.university}</h2>
-      <h3>${escHtml(state.meta.school)}</h3>
-      <p>${escHtml(state.meta.department)}</p>
-      <div class="title-row">SETTINGS</div>
-    </div>
-
+  return renderLetterhead('SETTINGS') + `
     <div class="settings-card">
       <h3>Portal settings</h3>
       <div class="settings-form">
@@ -1174,6 +1431,27 @@ function renderSettingsView() {
       ` : ''}
 
       <div class="settings-divider"></div>
+
+      <h3>Credit load</h3>
+      <p class="settings-note">Set the expected total credit units per year and semester. This is used to show completion progress alongside GPA.</p>
+      <div class="settings-form">
+        <div class="credit-load-grid">
+          ${YEAR_KEYS.map(yearKey => {
+            const harm = state.creditLoad[yearKey]?.['Harmattan Semester'] || '';
+            const rain = state.creditLoad[yearKey]?.['Rain Semester'] || '';
+            return `
+              <div class="credit-load-row">
+                <label>${yearKey}</label>
+                <div class="credit-load-inputs">
+                  <input type="number" min="1" step="1" placeholder="Harmattan" data-year="${yearKey}" data-sem="Harmattan Semester" value="${escAttr(harm)}">
+                  <input type="number" min="1" step="1" placeholder="Rain" data-year="${yearKey}" data-sem="Rain Semester" value="${escAttr(rain)}">
+                </div>
+                <span class="credit-load-status" data-year="${yearKey}"></span>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
 
       <h3>Student passcode</h3>
       <p class="settings-note">Changing the passcode immediately invalidates the old one for all students.</p>
@@ -1265,15 +1543,7 @@ async function savePasscode() {
 function renderProfileView() {
   const fullName = (currentUser?.user_metadata?.full_name || '').trim();
   const email = currentUser?.email || 'Not available';
-  return `
-    <div class="letterhead">
-      <img src="assets/futo-logo.jpeg" class="letterhead-logo" alt="FUTO Logo">
-      <h2>${META.university}</h2>
-      <h3>${escHtml(state.meta.school)}</h3>
-      <p>${escHtml(state.meta.department)}</p>
-      <div class="title-row">PROFILE</div>
-    </div>
-
+  return renderLetterhead('PROFILE') + `
     <div class="profile-card">
       <div class="profile-row">
         <div class="profile-label">Full name</div>

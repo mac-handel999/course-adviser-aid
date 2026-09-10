@@ -97,7 +97,8 @@ checkForm.addEventListener('submit', async (e) => {
       regNo: data.regNo,
       faculty: data.faculty,
       department: data.department,
-      results: data.results
+      results: data.results,
+      creditLoad: data.creditLoad || {}
     };
 
     document.getElementById('checkFaculty').textContent = data.faculty || '';
@@ -115,39 +116,51 @@ checkForm.addEventListener('submit', async (e) => {
 
     const YEAR_KEYS = Object.keys(blocks).sort();
     let html = '';
-    let cumUnits = 0;
-    let cumPoints = 0;
+    let cumConfiguredTotal = 0;
+    const allStudentRows = [];
 
     YEAR_KEYS.forEach(yearKey => {
       let semHtml = '';
       const semesters = Object.keys(blocks[yearKey]).sort();
       semesters.forEach(sem => {
         const rows = blocks[yearKey][sem];
-        let semUnits = 0;
-        let semPoints = 0;
+        allStudentRows.push(...rows);
+        const configuredTotal = (data.creditLoad && data.creditLoad[yearKey] && data.creditLoad[yearKey][sem]) || null;
+        if (configuredTotal) cumConfiguredTotal += configuredTotal;
+
+        const stats = computeGpaStats(rows, configuredTotal);
         let tableRows = '';
         rows.forEach(r => {
-          const unit = parseFloat(r.credit_unit) || 0;
           const gi = gradeInfo(r.score);
-          if (gi.point !== null) { semUnits += unit; semPoints += unit * gi.point; cumUnits += unit; cumPoints += unit * gi.point; }
-          tableRows += `<tr><td>${escHtml(r.course_code)}</td><td>${escHtml(r.course_title)}</td><td style="text-align:center">${escHtml(r.credit_unit)}</td>
+          const carryBadge = r.is_carryover ? ' <span class="carry-badge">C/O</span>' : '';
+          tableRows += `<tr><td>${escHtml(r.course_code)}${carryBadge}</td><td>${escHtml(r.course_title)}</td><td style="text-align:center">${escHtml(r.credit_unit)}</td>
             <td style="text-align:center">${escHtml(r.score)}</td><td style="text-align:center;font-weight:600">${gi.grade}</td>
             <td style="text-align:center">${gi.point === null ? '' : gi.point}</td></tr>`;
         });
-        const semGPA = semUnits > 0 ? (semPoints / semUnits).toFixed(2) : '—';
+
+        const semGpaText = stats.gpa !== null ? stats.gpa.toFixed(2) : '—';
+        let semTotalsHtml = `<span>Units: <b>${stats.unitsEntered}</b></span><span>Semester GPA: <b>${semGpaText}</b></span>`;
+        if (stats.unitsConfigured !== null) {
+          semTotalsHtml += `<span>Completion: <b>${stats.unitsEntered} of ${stats.unitsConfigured} units (${stats.percentComplete}%)</b></span>`;
+        }
         semHtml += `
           <div class="t-sem-label">${sem}</div>
           <table><thead><tr><th>Code</th><th>Course Title</th><th>Unit</th><th>Score</th><th>Grade</th><th>Point</th></tr></thead>
           <tbody>${tableRows}</tbody></table>
-          <div class="t-totals"><span>Units: <b>${semUnits}</b></span><span>Semester GPA: <b>${semGPA}</b></span></div>
+          <div class="t-totals">${semTotalsHtml}</div>
         `;
       });
       html += `<div class="t-year-block"><h4>${yearKey}</h4>${semHtml}</div>`;
     });
 
-    const cgpa = cumUnits > 0 ? (cumPoints / cumUnits).toFixed(2) : '—';
+    const cumStats = computeGpaStats(allStudentRows, cumConfiguredTotal || null);
+    const cgpaText = cumStats.gpa !== null ? cumStats.gpa.toFixed(2) : '—';
+    let cgpaHtml = `<span>CGPA: <b>${cgpaText}</b></span>`;
+    if (cumStats.unitsConfigured !== null) {
+      cgpaHtml = `<span>CGPA: <b>${cgpaText}</b></span><span>Completion: <b>${cumStats.unitsEntered} of ${cumStats.unitsConfigured} units (${cumStats.percentComplete}%)</b></span>`;
+    }
     document.getElementById('resultBlocks').innerHTML = html;
-    document.getElementById('resultCgpa').textContent = cgpa;
+    document.getElementById('resultCgpa').innerHTML = cgpaHtml;
     checkResult.style.display = 'block';
   } catch (err) {
     checkError.textContent = 'No results found for that passcode and registration number.';
@@ -191,6 +204,7 @@ async function exportResultsExcel() {
     const buffer = await blob.arrayBuffer();
     const imageId = workbook.addImage({ buffer, extension: 'jpg' });
     sheet.addImage(imageId, { tl: { col: 0.5, row: 0.1 }, ext: { width: 48, height: 48 } });
+    sheet.addImage(imageId, { tl: { col: 7.5, row: 0.1 }, ext: { width: 48, height: 48 } });
   } catch (e) {
     console.error('Failed to embed logo in Excel:', e);
   }

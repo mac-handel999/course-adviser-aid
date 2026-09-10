@@ -125,3 +125,54 @@ drop trigger if exists adviser_settings_set_updated_at on public.adviser_setting
 create trigger adviser_settings_set_updated_at
   before update on public.adviser_settings
   for each row execute function public.set_updated_at();
+
+-- Per-year, per-semester credit load targets for completeness tracking.
+create table if not exists public.credit_load_settings (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  year text not null,
+  semester text not null,
+  total_units numeric not null check (total_units > 0),
+  updated_at timestamptz default now(),
+  unique (user_id, year, semester)
+);
+
+alter table public.credit_load_settings enable row level security;
+
+-- Primary enforcement is in the Express API routes (server/routes/creditLoad.js),
+-- because the API uses the Supabase service role key which bypasses RLS.
+-- These RLS policies are a secondary safeguard in case the anon key is ever
+-- used to query this table directly, bypassing the API.
+
+drop policy if exists "Authenticated users can read own credit load" on public.credit_load_settings;
+drop policy if exists "Authenticated users can insert own credit load" on public.credit_load_settings;
+drop policy if exists "Authenticated users can update own credit load" on public.credit_load_settings;
+drop policy if exists "Authenticated users can delete own credit load" on public.credit_load_settings;
+
+create policy "Authenticated users can read own credit load"
+  on public.credit_load_settings for select
+  to authenticated
+  using (user_id = auth.uid());
+
+create policy "Authenticated users can insert own credit load"
+  on public.credit_load_settings for insert
+  to authenticated
+  with check (user_id = auth.uid());
+
+create policy "Authenticated users can update own credit load"
+  on public.credit_load_settings for update
+  to authenticated
+  using (user_id = auth.uid());
+
+create policy "Authenticated users can delete own credit load"
+  on public.credit_load_settings for delete
+  to authenticated
+  using (user_id = auth.uid());
+
+drop trigger if exists credit_load_settings_set_updated_at on public.credit_load_settings;
+create trigger credit_load_settings_set_updated_at
+  before update on public.credit_load_settings
+  for each row execute function public.set_updated_at();
+
+-- Carry-over retake flag for results.
+alter table public.results add column if not exists is_carryover boolean default false;

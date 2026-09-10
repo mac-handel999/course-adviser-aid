@@ -167,10 +167,13 @@
 
 /* ---------- letterhead ---------- */
 .letterhead {
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   padding-bottom: 16px;
   border-bottom: 3px solid var(--green-deep);
   margin-bottom: 22px;
+  gap: 16px;
 }
 
 .letterhead-logo {
@@ -178,8 +181,12 @@
   height: 64px;
   object-fit: cover;
   border-radius: 50%;
-  margin: 0 auto 10px auto;
-  display: block;
+  flex-shrink: 0;
+}
+
+.letterhead-center {
+  text-align: center;
+  flex: 1;
 }
 
 .letterhead h2 {
@@ -207,6 +214,16 @@
   font-weight: 600;
   color: var(--gold);
   letter-spacing: .5px;
+}
+
+@media print {
+  .letterhead {
+    gap: 10px;
+  }
+  .letterhead-logo {
+    width: 48px;
+    height: 48px;
+  }
 }
 
 /* ---------- semester block ---------- */
@@ -250,6 +267,57 @@
   margin-bottom: 16px;
 }
 
+.cum-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.cum-toggle {
+  display: flex;
+  gap: 10px;
+}
+
+.cum-toggle select {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: 'Inter', sans-serif;
+  background: var(--paper);
+}
+
+.cum-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.cum-table-wrap {
+  overflow-x: auto;
+}
+
+.cum-table-wrap table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.cum-table-wrap th,
+.cum-table-wrap td {
+  border: 1px solid var(--line);
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.cum-table-wrap th {
+  background: var(--green-deep);
+  color: #fff;
+  font-weight: 600;
+}
+
 .summary-card {
   background: var(--line-soft);
   border-radius: 8px;
@@ -261,6 +329,19 @@
   font-size: 19px;
   color: var(--green-deep);
   font-weight: 600;
+}
+
+.carry-badge {
+  display: inline-block;
+  background: var(--amber);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+  margin-left: 4px;
+  line-height: 1.4;
+  vertical-align: middle;
 }
 
 .summary-card .lbl {
@@ -445,7 +526,9 @@ td.narrow input {
 }
 
 .t-year-block {
-  margin-bottom: 20px;
+  margin-bottom: 28px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line-soft);
 }
 
 .t-year-block h4 {
@@ -453,13 +536,13 @@ td.narrow input {
   font-size: 14px;
   border-bottom: 1px solid var(--line-soft);
   padding-bottom: 6px;
-  margin-bottom: 8px;
+  margin-bottom: 12px;
 }
 
 .t-sem-label {
   font-size: 11.5px;
   color: var(--muted);
-  margin: 8px 0 4px 0;
+  margin: 14px 0 8px 0;
   font-weight: 600;
 }
 
@@ -828,7 +911,10 @@ td.narrow input {
   .icon-btn,
   .transcript-search,
   .app-topbar,
-  .bottom-tab-bar {
+  .bottom-tab-bar,
+  .year-actions,
+  .settings-card,
+  .credit-load-grid {
     display: none !important;
   }
 

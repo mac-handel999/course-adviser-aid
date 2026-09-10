@@ -2,7 +2,10 @@
 
 Advyza is a results and transcript management tool for course advisers at
 FUTO. It lets advisers enter results by year and semester, auto-grade and
-total them, generate transcripts, and export to Excel or PDF.
+total them, generate transcripts, track carry-over retakes, configure
+per-semester credit load targets, view completion progress alongside GPA,
+and export official documents with the department letterhead to Excel or
+PDF.
 
 It is built as a static frontend with an Express API, Supabase for
 authentication and storage, and is deployed on Vercel.
