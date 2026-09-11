@@ -395,10 +395,10 @@ function renderSemesterBlock(yearKey, sem) {
   const summary = computeSummary(rows, yearKey, sem);
 
   let rowsHtml = '';
+  const distinctCodes = Array.from(new Set(rows.map(r => (r.code || '').trim()).filter(Boolean))).sort();
   if (rows.length === 0) {
     rowsHtml = `<tr class="empty-row"><td colspan="11">No students added yet — click "Add student row" to begin.</td></tr>`;
   } else {
-    const distinctCodes = Array.from(new Set(rows.map(r => (r.code || '').trim()).filter(Boolean))).sort();
     rows.forEach((r, i) => {
       const gi = gradeInfo(r.score);
       const carryBadge = r.isCarryover ? ' <span class="carry-badge">C/O</span>' : '';
