@@ -32,6 +32,14 @@ router.post('/', async (req, res) => {
       created_by: req.user.id
     };
 
+    if (payload.reg_no !== undefined && payload.reg_no !== null && payload.reg_no !== '') {
+      const regNo = String(payload.reg_no).trim();
+      if (!/^\d{11}$/.test(regNo)) {
+        return res.status(400).json({ error: 'Reg No must be exactly 11 digits.' });
+      }
+      payload.reg_no = regNo;
+    }
+
     if (payload.score !== undefined && payload.score !== null) {
       const score = parseFloat(payload.score);
       if (isNaN(score) || score < 0 || score > 100) {
@@ -61,6 +69,14 @@ router.put('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const payload = req.body;
+
+    if (payload.reg_no !== undefined && payload.reg_no !== null && payload.reg_no !== '') {
+      const regNo = String(payload.reg_no).trim();
+      if (!/^\d{11}$/.test(regNo)) {
+        return res.status(400).json({ error: 'Reg No must be exactly 11 digits.' });
+      }
+      payload.reg_no = regNo;
+    }
 
     if (payload.score !== undefined && payload.score !== null) {
       const score = parseFloat(payload.score);

@@ -14,7 +14,8 @@ router.get('/', async (req, res) => {
       portal_slug: settings.portal_slug,
       faculty: settings.faculty,
       department: settings.department,
-      passcode_set: !!settings.passcode_hash
+      passcode_set: !!settings.passcode_hash,
+      class_set: settings.class_set || null
     });
   } catch (err) {
     console.error('Settings GET error:', err.message);
@@ -24,7 +25,7 @@ router.get('/', async (req, res) => {
 
 router.put('/', async (req, res) => {
   try {
-    const { faculty, department, portal_slug } = req.body;
+    const { faculty, department, portal_slug, class_set } = req.body;
     if (!faculty || !department || !portal_slug) {
       return res.status(400).json({ error: 'faculty, department, and portal_slug are required.' });
     }
@@ -41,13 +42,19 @@ router.put('/', async (req, res) => {
 
     await getOrCreateAdviserSettings(req.user.id, req.user.email, req.user.user_metadata);
 
+    const updatePayload = {
+      portal_slug: slug,
+      faculty: String(faculty).trim(),
+      department: String(department).trim()
+    };
+
+    if (class_set !== undefined) {
+      updatePayload.class_set = class_set === '' || class_set === null ? null : String(class_set).trim();
+    }
+
     const { data, error } = await supabaseAdmin
       .from('adviser_settings')
-      .update({
-        portal_slug: slug,
-        faculty: String(faculty).trim(),
-        department: String(department).trim()
-      })
+      .update(updatePayload)
       .eq('user_id', req.user.id)
       .select()
       .single();
@@ -59,11 +66,54 @@ router.put('/', async (req, res) => {
       throw error;
     }
 
+    if (updatePayload.class_set !== undefined) {
+      const startMatch = String(updatePayload.class_set || '').match(/^(\d{4})/);
+      const startYear = startMatch ? parseInt(startMatch[1], 10) : null;
+      if (startYear) {
+        const { data: existingSessions } = await supabaseAdmin
+          .from('academic_sessions')
+          .select('year, is_auto')
+          .eq('user_id', req.user.id)
+          .in('is_auto', [true]);
+
+        const autoYears = new Set((existingSessions || []).filter(s => s.is_auto).map(s => s.year));
+        if (autoYears.size === 0) {
+          const inserts = [];
+          for (let i = 0; i < 10; i++) {
+            inserts.push({
+              user_id: req.user.id,
+              year: `Year ${i + 1}`,
+              session_label: `${startYear + i}/${startYear + i + 1}`,
+              is_auto: true
+            });
+          }
+          await supabaseAdmin.from('academic_sessions').insert(inserts);
+        } else {
+          const updates = [];
+          for (const year of autoYears) {
+            const idx = parseInt(String(year).replace('Year ', ''), 10) - 1;
+            if (idx >= 0 && idx < 10) {
+              updates.push({
+                user_id: req.user.id,
+                year,
+                session_label: `${startYear + idx}/${startYear + idx + 1}`,
+                is_auto: true
+              });
+            }
+          }
+          if (updates.length) {
+            await supabaseAdmin.from('academic_sessions').upsert(updates, { onConflict: 'user_id,year' });
+          }
+        }
+      }
+    }
+
     res.json({
       portal_slug: data.portal_slug,
       faculty: data.faculty,
       department: data.department,
-      passcode_set: !!data.passcode_hash
+      passcode_set: !!data.passcode_hash,
+      class_set: data.class_set || null
     });
   } catch (err) {
     console.error('Settings PUT error:', err.message);

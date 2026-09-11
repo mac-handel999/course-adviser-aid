@@ -15,7 +15,7 @@ const YEAR_KEYS = Array.from({ length: 10 }, (_, i) => 'Year ' + (i + 1));
 const SEMESTERS = ['Harmattan Semester', 'Rain Semester'];
 const emptyRow = () => ({ id: null, regNo: '', name: '', code: '', title: '', unit: '', score: '', isCarryover: false });
 
-let state = { years: {}, currentView: 'Year 1', meta: { school: 'SCHOOL OF HEALTH TECHNOLOGY (SOHT)', department: 'DEPARTMENT OF PUBLIC HEALTH' }, creditLoad: {} };
+let state = { years: {}, currentView: 'Year 1', meta: { school: 'SCHOOL OF HEALTH TECHNOLOGY (SOHT)', department: 'DEPARTMENT OF PUBLIC HEALTH' }, creditLoad: {}, classSet: null, academicSessions: {} };
 YEAR_KEYS.forEach(y => {
   state.years[y] = {};
   SEMESTERS.forEach(s => { state.years[y][s] = [emptyRow()]; });
@@ -68,6 +68,22 @@ function switchView(view) {
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === view));
   document.querySelectorAll('.bottom-tab-bar .tab').forEach(t => t.classList.toggle('active', t.dataset.view === view));
   render();
+}
+
+function sanitizeRegNo(value) {
+  return String(value || '').replace(/\D/g, '').slice(0, 11);
+}
+
+function validateRegNo(input) {
+  const value = sanitizeRegNo(input.value);
+  input.value = value;
+  const warn = input.parentElement.querySelector('.reg-no-warn');
+  if (value.length > 0 && value.length !== 11) {
+    if (warn) { warn.textContent = 'Registration number must be exactly 11 digits.'; warn.style.color = 'var(--red)'; }
+    return false;
+  }
+  if (warn) { warn.textContent = ''; }
+  return true;
 }
 
 /* ===================== RENDER ROOT ===================== */
@@ -225,6 +241,7 @@ function validateImportRows(rawRows, yearKey, sem) {
     const scoreRaw = row.score;
 
     if (!reg) rowErrors.push('Reg No is required.');
+    else if (!/^\d{11}$/.test(reg)) rowErrors.push('Reg No must be exactly 11 digits.');
     if (!code) rowErrors.push('Course Code is required.');
     if (unitRaw === '' || unitRaw === null || unitRaw === undefined) {
       rowErrors.push('Credit Unit is required.');
@@ -374,7 +391,9 @@ async function handleImportFile(input, yearKey, sem) {
 
 /* ===================== YEAR VIEW ===================== */
 function renderYearView(yearKey) {
-  let html = renderLetterhead(`${yearKey.toUpperCase()} — RESULT COMPUTATION`);
+  const session = state.academicSessions[yearKey] || '';
+  const title = session ? `${yearKey.toUpperCase()} — ${session.toUpperCase()} SESSION` : `${yearKey.toUpperCase()} — RESULT COMPUTATION`;
+  let html = renderLetterhead(title);
   html += `<div class="year-actions">
     <button class="btn gold" onclick="exportYearExcel('${yearKey}')">Export ${yearKey} to Excel</button>
   </div>`;
@@ -405,7 +424,7 @@ function renderSemesterBlock(yearKey, sem) {
       rowsHtml += `
         <tr>
           <td>${i + 1}</td>
-          <td><input value="${escAttr(r.regNo)}" placeholder="Reg No" oninput="updateCell('${yearKey}','${sem}',${i},'regNo',this.value)"></td>
+          <td><input value="${escAttr(r.regNo)}" placeholder="Reg No" maxlength="11" inputmode="numeric" pattern="\d{11}" oninput="updateCell('${yearKey}','${sem}',${i},'regNo',sanitizeRegNo(this.value))" onblur="validateRegNo(this)"><span class="reg-no-warn" style="color:var(--red);font-size:11px"></span></td>
           <td><input value="${escAttr(r.name)}" placeholder="Student name" oninput="updateCell('${yearKey}','${sem}',${i},'name',this.value)"></td>
           <td class="narrow"><input value="${escAttr(r.code)}" placeholder="Code" list="code-list-${yearKey}-${semSlug}" oninput="updateCell('${yearKey}','${sem}',${i},'code',this.value)">${carryBadge}</td>
           <td><input value="${escAttr(r.title)}" placeholder="Course title" oninput="updateCell('${yearKey}','${sem}',${i},'title',this.value)"></td>
@@ -511,13 +530,14 @@ function updateCell(yearKey, sem, idx, field, value) {
 function updateScore(yearKey, sem, idx, value) {
   const num = parseFloat(value);
   const row = state.years[yearKey][sem][idx];
-  if (value !== '' && (!isNaN(num) && num > 100)) {
-    const warn = document.getElementById(`score-warn-${yearKey}-${sem}-${idx}`);
-    if (warn) { warn.textContent = 'Score cannot exceed 100.'; warn.style.color = 'var(--red)'; }
+  const warn = document.getElementById(`score-warn-${yearKey}-${sem}-${idx}`);
+
+  if (value !== '' && (isNaN(num) || num < 0 || num > 100)) {
+    if (warn) { warn.textContent = 'Score must be a number between 0 and 100.'; warn.style.color = 'var(--red)'; }
     return;
   }
-  const warn = document.getElementById(`score-warn-${yearKey}-${sem}-${idx}`);
   if (warn) { warn.textContent = ''; }
+
   row.score = value;
   const gi = gradeInfo(value);
   const gradeCell = document.getElementById(`grade-${yearKey}-${sem}-${idx}`);
@@ -756,7 +776,7 @@ function renderTranscriptView() {
     <div class="transcript-search">
       <div class="field">
         <label>Registration Number</label>
-        <input id="transcriptRegNo" placeholder="e.g. PH/2025/001">
+        <input id="transcriptRegNo" placeholder="e.g. 20241234567" maxlength="11" inputmode="numeric" pattern="\d{11}">
       </div>
       <button class="btn" id="generateBtn" onclick="generateTranscript()">Generate transcript</button>
       <button class="btn gold" id="printBtn" onclick="window.print()" style="display:none">Print</button>
@@ -773,6 +793,8 @@ function attachTranscriptHandlers() {
   const input = document.getElementById('transcriptRegNo');
   if (input) {
     input.addEventListener('keydown', e => { if (e.key === 'Enter') generateTranscript(); });
+    input.addEventListener('input', () => { input.value = sanitizeRegNo(input.value); });
+    input.addEventListener('blur', () => validateRegNo(input));
   }
 }
 
@@ -796,7 +818,7 @@ function attachSettingsHandlers() {
     });
   }
 
-  const creditInputs = document.querySelectorAll('.credit-load-inputs input');
+  const creditInputs = document.querySelectorAll('.credit-load-inputs input[data-sem]');
   const creditTimers = {};
   creditInputs.forEach(input => {
     input.addEventListener('input', () => {
@@ -826,6 +848,38 @@ function attachSettingsHandlers() {
           });
           if (!state.creditLoad[year]) state.creditLoad[year] = {};
           state.creditLoad[year][sem] = numeric;
+          if (statusEl) { statusEl.textContent = 'Saved'; statusEl.style.color = 'var(--ok)'; }
+          setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 1500);
+        } catch (err) {
+          if (statusEl) { statusEl.textContent = err.message || 'Failed'; statusEl.style.color = 'var(--red)'; }
+        }
+      }, 600);
+    });
+  });
+
+  const sessionInputs = document.querySelectorAll('.credit-load-inputs input[data-year]:not([data-sem])');
+  const sessionTimers = {};
+  sessionInputs.forEach(input => {
+    input.addEventListener('input', () => {
+      const year = input.dataset.year;
+      const statusEl = document.querySelector(`.credit-load-status[data-year="${year}"][data-type="session"]`);
+      if (statusEl) {
+        statusEl.textContent = 'Saving…';
+        statusEl.style.color = 'var(--muted)';
+      }
+      clearTimeout(sessionTimers[year]);
+      sessionTimers[year] = setTimeout(async () => {
+        const value = input.value.trim();
+        if (!value) {
+          if (statusEl) { statusEl.textContent = ''; }
+          return;
+        }
+        try {
+          await apiFetch('/api/academic-sessions', {
+            method: 'PUT',
+            body: JSON.stringify({ year, session_label: value })
+          });
+          if (!state.academicSessions[year]) state.academicSessions[year] = value;
           if (statusEl) { statusEl.textContent = 'Saved'; statusEl.style.color = 'var(--ok)'; }
           setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 1500);
         } catch (err) {
@@ -897,7 +951,9 @@ function generateTranscript() {
       `;
     });
     if (yearHasData) {
-      yearBlocksHtml += `<div class="t-year-block"><h4>${yearKey}</h4>${semHtml}</div>`;
+      const session = state.academicSessions[yearKey] || '';
+      const yearTitle = session ? `${yearKey} — ${session}` : yearKey;
+      yearBlocksHtml += `<div class="t-year-block"><h4>${yearTitle}</h4>${semHtml}</div>`;
     }
   });
 
@@ -935,6 +991,8 @@ let cumState = { yearKey: 'Year 1', sem: 'Harmattan Semester' };
 function renderCumulativeView() {
   const yearKey = cumState.yearKey;
   const sem = cumState.sem;
+  const session = state.academicSessions[yearKey] || '';
+  const title = session ? `CUMULATIVE RESULT SHEET — ${session.toUpperCase()} SESSION` : 'CUMULATIVE RESULT SHEET';
   const rows = state.years[yearKey][sem] || [];
   const sorted = rows.slice().sort((a, b) => (a.name || '').trim().toLowerCase() < (b.name || '').trim().toLowerCase() ? -1 : 1);
 
@@ -969,7 +1027,7 @@ function renderCumulativeView() {
   const yearOptions = YEAR_KEYS.map(y => `<option value="${y}" ${y === yearKey ? 'selected' : ''}>${y}</option>`).join('');
   const semOptions = SEMESTERS.map(s => `<option value="${s}" ${s === sem ? 'selected' : ''}>${s}</option>`).join('');
 
-  return renderLetterhead('CUMULATIVE RESULT SHEET') + `
+  return renderLetterhead(title) + `
     <div class="cum-toolbar">
       <div class="cum-toggle">
         <select id="cumYear">${yearOptions}</select>
@@ -1413,6 +1471,7 @@ async function loadSettings() {
       state.meta.department = data.department || state.meta.department;
       state.meta.portalSlug = data.portal_slug || state.meta.portalSlug;
       state.meta.passcodeSet = !!data.passcode_set;
+      state.classSet = data.class_set || null;
     }
   } catch (err) {
     console.error('Failed to load settings:', err.message);
@@ -1428,12 +1487,23 @@ async function loadSettings() {
   } catch (err) {
     console.error('Failed to load credit load settings:', err.message);
   }
+
+  try {
+    const sessionData = await apiFetch('/api/academic-sessions');
+    state.academicSessions = {};
+    (sessionData || []).forEach(row => {
+      state.academicSessions[row.year] = row.session_label;
+    });
+  } catch (err) {
+    console.error('Failed to load academic sessions:', err.message);
+  }
 }
 
 /* ===================== SETTINGS VIEW ===================== */
 function renderSettingsView() {
   const slug = state.meta.portalSlug || '';
   const checkUrl = slug ? `${window.location.origin}/students-results/${encodeURIComponent(slug)}` : '';
+  const classSet = state.classSet || '';
   return renderLetterhead('SETTINGS') + `
     <div class="settings-card">
       <h3>Portal settings</h3>
@@ -1451,6 +1521,11 @@ function renderSettingsView() {
           <input id="settingSlug" value="${escAttr(slug)}" placeholder="e.g. mrs-adeyemi-ph">
           <small>This becomes the public link students use to check results.</small>
         </div>
+        <div class="meta-field">
+          <label for="settingClassSet">Class Set</label>
+          <input id="settingClassSet" value="${escAttr(classSet)}" placeholder="e.g. 2024/2025">
+          <small>Admission cohort session. Used to auto-label each year's session.</small>
+        </div>
         <button class="btn gold" id="saveSettingsBtn">Save settings</button>
         <span id="settingsStatus" class="settings-status"></span>
       </div>
@@ -1464,6 +1539,27 @@ function renderSettingsView() {
           </div>
         </div>
       ` : ''}
+
+      <div class="settings-divider"></div>
+
+      <h3>Academic sessions</h3>
+      <p class="settings-note">Set the academic session label for each year. These appear on official documents.</p>
+      <div class="settings-form">
+        <div class="credit-load-grid">
+          ${YEAR_KEYS.map(yearKey => {
+            const session = state.academicSessions[yearKey] || '';
+            return `
+              <div class="credit-load-row">
+                <label>${yearKey}</label>
+                <div class="credit-load-inputs">
+                  <input type="text" placeholder="Session" data-year="${yearKey}" value="${escAttr(session)}">
+                </div>
+                <span class="credit-load-status" data-year="${yearKey}" data-type="session"></span>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
 
       <div class="settings-divider"></div>
 
@@ -1520,6 +1616,7 @@ async function saveSettings() {
   const faculty = document.getElementById('settingFaculty').value.trim();
   const department = document.getElementById('settingDepartment').value.trim();
   const portalSlug = document.getElementById('settingSlug').value.trim();
+  const classSet = document.getElementById('settingClassSet').value.trim();
   const statusEl = document.getElementById('settingsStatus');
 
   if (!faculty || !department || !portalSlug) {
@@ -1534,11 +1631,12 @@ async function saveSettings() {
   try {
     const data = await apiFetch('/api/settings', {
       method: 'PUT',
-      body: JSON.stringify({ faculty, department, portal_slug: portalSlug })
+      body: JSON.stringify({ faculty, department, portal_slug: portalSlug, class_set: classSet })
     });
     state.meta.school = data.faculty;
     state.meta.department = data.department;
     state.meta.portalSlug = data.portal_slug;
+    state.classSet = data.class_set || null;
     statusEl.textContent = 'Saved.';
     statusEl.style.color = 'var(--ok)';
     render();

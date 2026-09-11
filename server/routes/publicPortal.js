@@ -67,6 +67,15 @@ router.post('/portal/:slug/lookup', async (req, res) => {
       console.error('Public portal credit load error:', creditLoadError.message);
     }
 
+    const { data: academicSessions, error: academicSessionsError } = await supabaseAdmin
+      .from('academic_sessions')
+      .select('year, session_label')
+      .eq('user_id', settings.user_id);
+
+    if (academicSessionsError) {
+      console.error('Public portal academic sessions error:', academicSessionsError.message);
+    }
+
     if (!results || results.length === 0) {
       return res.status(401).json({ error: 'No results found for that passcode and registration number.' });
     }
@@ -77,13 +86,19 @@ router.post('/portal/:slug/lookup', async (req, res) => {
       creditLoadMap[row.year][row.semester] = row.total_units;
     });
 
+    const academicSessionsMap = {};
+    (academicSessions || []).forEach(row => {
+      academicSessionsMap[row.year] = row.session_label;
+    });
+
     res.json({
       university: 'FEDERAL UNIVERSITY OF TECHNOLOGY OWERRI',
       faculty: settings.faculty,
       department: settings.department,
       regNo: trimmedRegNo,
       results,
-      creditLoad: creditLoadMap
+      creditLoad: creditLoadMap,
+      academicSessions: academicSessionsMap
     });
   } catch (err) {
     console.error('Public portal server error:', err);

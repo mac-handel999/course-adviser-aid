@@ -80,6 +80,7 @@ create table if not exists public.adviser_settings (
   passcode_hash text,
   faculty text default 'SCHOOL OF HEALTH TECHNOLOGY (SOHT)',
   department text default 'DEPARTMENT OF PUBLIC HEALTH',
+  class_set text,
   updated_at timestamptz default now()
 );
 
@@ -176,3 +177,57 @@ create trigger credit_load_settings_set_updated_at
 
 -- Carry-over retake flag for results.
 alter table public.results add column if not exists is_carryover boolean default false;
+
+-- Score range constraint: 0-100 or null.
+alter table public.results drop constraint if exists results_score_range;
+alter table public.results
+  add constraint results_score_range
+  check (score is null or (score >= 0 and score <= 100));
+
+-- Per-year academic session labels (e.g. "2025/2026").
+create table if not exists public.academic_sessions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  year text not null,
+  session_label text not null,
+  is_auto boolean not null default true,
+  updated_at timestamptz default now(),
+  unique (user_id, year)
+);
+
+alter table public.academic_sessions enable row level security;
+
+-- Primary enforcement is in the Express API routes (server/routes/academicSessions.js),
+-- because the API uses the Supabase service role key which bypasses RLS.
+-- These RLS policies are a secondary safeguard in case the anon key is ever
+-- used to query this table directly, bypassing the API.
+
+drop policy if exists "Authenticated users can read own academic sessions" on public.academic_sessions;
+drop policy if exists "Authenticated users can insert own academic sessions" on public.academic_sessions;
+drop policy if exists "Authenticated users can update own academic sessions" on public.academic_sessions;
+drop policy if exists "Authenticated users can delete own academic sessions" on public.academic_sessions;
+
+create policy "Authenticated users can read own academic sessions"
+  on public.academic_sessions for select
+  to authenticated
+  using (user_id = auth.uid());
+
+create policy "Authenticated users can insert own academic sessions"
+  on public.academic_sessions for insert
+  to authenticated
+  with check (user_id = auth.uid());
+
+create policy "Authenticated users can update own academic sessions"
+  on public.academic_sessions for update
+  to authenticated
+  using (user_id = auth.uid());
+
+create policy "Authenticated users can delete own academic sessions"
+  on public.academic_sessions for delete
+  to authenticated
+  using (user_id = auth.uid());
+
+drop trigger if exists academic_sessions_set_updated_at on public.academic_sessions;
+create trigger academic_sessions_set_updated_at
+  before update on public.academic_sessions
+  for each row execute function public.set_updated_at();

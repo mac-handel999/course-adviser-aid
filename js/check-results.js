@@ -46,6 +46,27 @@ const continueBtn = document.getElementById('continueBtn');
 const passcodeInput = document.getElementById('passcode');
 const regNoInput = document.getElementById('regNo');
 
+function sanitizeRegNo(value) {
+  return String(value || '').replace(/\D/g, '').slice(0, 11);
+}
+
+function validateRegNo(input) {
+  const value = sanitizeRegNo(input.value);
+  input.value = value;
+  if (value.length > 0 && value.length !== 11) {
+    checkError.textContent = 'Registration number must be exactly 11 digits.';
+    return false;
+  }
+  return true;
+}
+
+if (regNoInput) {
+  regNoInput.addEventListener('input', () => {
+    regNoInput.value = sanitizeRegNo(regNoInput.value);
+  });
+  regNoInput.addEventListener('blur', () => validateRegNo(regNoInput));
+}
+
 function showStep2() {
   if (!passcodeInput.value.trim()) {
     checkError.textContent = 'Please enter your passcode.';
@@ -71,13 +92,19 @@ checkForm.addEventListener('submit', async (e) => {
   checkError.textContent = '';
 
   const passcode = passcodeInput.value;
-  const regNo = regNoInput.value.trim();
+  const regNo = sanitizeRegNo(regNoInput.value);
 
   if (!passcode || !regNo) {
     checkError.textContent = 'Please enter both passcode and registration number.';
     return;
   }
 
+  if (regNo.length !== 11) {
+    checkError.textContent = 'Registration number must be exactly 11 digits.';
+    return;
+  }
+
+  regNoInput.value = regNo;
   try {
     const res = await fetch(`/api/public/portal/${encodeURIComponent(portalSlug)}/lookup`, {
       method: 'POST',
@@ -98,7 +125,8 @@ checkForm.addEventListener('submit', async (e) => {
       faculty: data.faculty,
       department: data.department,
       results: data.results,
-      creditLoad: data.creditLoad || {}
+      creditLoad: data.creditLoad || {},
+      academicSessions: data.academicSessions || {}
     };
 
     document.getElementById('checkFaculty').textContent = data.faculty || '';
@@ -150,7 +178,7 @@ checkForm.addEventListener('submit', async (e) => {
           <div class="t-totals">${semTotalsHtml}</div>
         `;
       });
-      html += `<div class="t-year-block"><h4>${yearKey}</h4>${semHtml}</div>`;
+      html += `<div class="t-year-block"><h4>${yearKey}${data.academicSessions && data.academicSessions[yearKey] ? ' — ' + data.academicSessions[yearKey] : ''}</h4>${semHtml}</div>`;
     });
 
     const cumStats = computeGpaStats(allStudentRows, cumConfiguredTotal || null);

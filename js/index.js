@@ -83,7 +83,7 @@
                     const gi = gradeInfo(r.score);
                     rowsHtml += `
         <tr>
-          <td><input value="${escAttr(r.regNo)}" placeholder="Reg No" oninput="updateCell('${yearKey}','${sem}',${i},'regNo',this.value)"></td>
+          <td><input value="${escAttr(r.regNo)}" placeholder="Reg No" maxlength="11" inputmode="numeric" pattern="\d{11}" oninput="updateCell('${yearKey}','${sem}',${i},'regNo',this.value)"></td>
           <td><input value="${escAttr(r.name)}" placeholder="Student name" oninput="updateCell('${yearKey}','${sem}',${i},'name',this.value)"></td>
           <td class="narrow"><input value="${escAttr(r.code)}" placeholder="Code" oninput="updateCell('${yearKey}','${sem}',${i},'code',this.value)"></td>
           <td><input value="${escAttr(r.title)}" placeholder="Course title" oninput="updateCell('${yearKey}','${sem}',${i},'title',this.value)"></td>
@@ -220,7 +220,7 @@
     <div class="transcript-search">
       <div class="field">
         <label>Registration Number</label>
-        <input id="transcriptRegNo" placeholder="e.g. PH/2025/001">
+        <input id="transcriptRegNo" placeholder="e.g. 20241234567">
       </div>
       <button class="btn" id="generateBtn" onclick="generateTranscript()">Generate transcript</button>
       <button class="btn gold" id="printBtn" onclick="window.print()" style="display:none">Print</button>
