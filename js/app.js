@@ -384,6 +384,7 @@ function renderYearView(yearKey) {
 
 function renderSemesterBlock(yearKey, sem) {
   const rows = state.years[yearKey][sem];
+  const semSlug = sem.replace(/\s+/g, '-');
   rows.sort((a, b) => {
     const nameA = (a.name || '').trim().toLowerCase();
     const nameB = (b.name || '').trim().toLowerCase();
@@ -398,7 +399,6 @@ function renderSemesterBlock(yearKey, sem) {
     rowsHtml = `<tr class="empty-row"><td colspan="11">No students added yet — click "Add student row" to begin.</td></tr>`;
   } else {
     const distinctCodes = Array.from(new Set(rows.map(r => (r.code || '').trim()).filter(Boolean))).sort();
-    const datalistId = `code-list-${yearKey}-${semSlug}`;
     rows.forEach((r, i) => {
       const gi = gradeInfo(r.score);
       const carryBadge = r.isCarryover ? ' <span class="carry-badge">C/O</span>' : '';
@@ -407,7 +407,7 @@ function renderSemesterBlock(yearKey, sem) {
           <td>${i + 1}</td>
           <td><input value="${escAttr(r.regNo)}" placeholder="Reg No" oninput="updateCell('${yearKey}','${sem}',${i},'regNo',this.value)"></td>
           <td><input value="${escAttr(r.name)}" placeholder="Student name" oninput="updateCell('${yearKey}','${sem}',${i},'name',this.value)"></td>
-          <td class="narrow"><input value="${escAttr(r.code)}" placeholder="Code" list="${datalistId}" oninput="updateCell('${yearKey}','${sem}',${i},'code',this.value)">${carryBadge}</td>
+          <td class="narrow"><input value="${escAttr(r.code)}" placeholder="Code" list="code-list-${yearKey}-${semSlug}" oninput="updateCell('${yearKey}','${sem}',${i},'code',this.value)">${carryBadge}</td>
           <td><input value="${escAttr(r.title)}" placeholder="Course title" oninput="updateCell('${yearKey}','${sem}',${i},'title',this.value)"></td>
           <td class="narrow"><input type="number" value="${escAttr(r.unit)}" placeholder="Unit" oninput="updateCell('${yearKey}','${sem}',${i},'unit',this.value)"></td>
           <td class="narrow"><input type="number" value="${escAttr(r.score)}" placeholder="Score" oninput="updateScore('${yearKey}','${sem}',${i},this.value)"></td>
@@ -421,11 +421,8 @@ function renderSemesterBlock(yearKey, sem) {
     });
   }
 
-  const semSlug = sem.replace(/\s+/g, '-');
   const safeSem = sem.replace(/[:\\\/\?\*\[\]]/g, '');
-  const distinctCodes = Array.from(new Set(rows.map(r => (r.code || '').trim()).filter(Boolean))).sort();
-  const datalistId = `code-list-${yearKey}-${semSlug}`;
-  const datalistHtml = distinctCodes.length ? `<datalist id="${datalistId}">${distinctCodes.map(c => `<option value="${escHtml(c)}">`).join('')}</datalist>` : '';
+  const datalistHtml = distinctCodes.length ? `<datalist id="code-list-${yearKey}-${semSlug}">${distinctCodes.map(c => `<option value="${escHtml(c)}">`).join('')}</datalist>` : '';
   return `
     <div class="semester" id="semester-${yearKey}-${semSlug}">
       ${datalistHtml}
