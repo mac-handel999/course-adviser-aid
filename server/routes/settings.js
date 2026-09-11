@@ -48,8 +48,8 @@ router.put('/', async (req, res) => {
       department: String(department).trim()
     };
 
-    if (class_set !== undefined) {
-      updatePayload.class_set = class_set === '' || class_set === null ? null : String(class_set).trim();
+    if (class_set !== undefined && class_set !== null && String(class_set).trim() !== '') {
+      updatePayload.class_set = String(class_set).trim();
     }
 
     const { data, error } = await supabaseAdmin
@@ -66,7 +66,7 @@ router.put('/', async (req, res) => {
       throw error;
     }
 
-    if (updatePayload.class_set !== undefined) {
+    if (updatePayload.class_set) {
       const startMatch = String(updatePayload.class_set || '').match(/^(\d{4})/);
       const startYear = startMatch ? parseInt(startMatch[1], 10) : null;
       if (startYear) {
