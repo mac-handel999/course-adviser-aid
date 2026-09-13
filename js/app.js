@@ -13,7 +13,7 @@ const META = {
 };
 const YEAR_KEYS = Array.from({ length: 10 }, (_, i) => 'Year ' + (i + 1));
 const SEMESTERS = ['Harmattan Semester', 'Rain Semester'];
-const emptyRow = () => ({ id: null, regNo: '', name: '', code: '', title: '', unit: '', score: '', isCarryover: false });
+const emptyRow = () => ({ id: null, regNo: '', name: '', code: '', title: '', unit: '', score: '', test_score: '', lab_score: '', exam_score: '', isCarryover: false, program: '', remark: '' });
 
 let state = { years: {}, courses: {}, currentView: 'Year 1', activeCourse: null, meta: { school: 'SCHOOL OF HEALTH TECHNOLOGY (SOHT)', department: 'DEPARTMENT OF PUBLIC HEALTH' }, creditLoad: {}, classSet: null, academicSessions: {} };
 YEAR_KEYS.forEach(y => {
@@ -167,7 +167,12 @@ const IMPORT_FIELDS = [
   { key: 'code', aliases: ['course code', 'code', 'course_code', 'coursecode', 'course code'] },
   { key: 'title', aliases: ['course title', 'title', 'course_title', 'coursetitle', 'course title'] },
   { key: 'unit', aliases: ['credit unit', 'unit', 'credit_unit', 'creditunit', 'credits', 'cu'] },
-  { key: 'score', aliases: ['score', 'mark', 'score/mark', 'marks'] }
+  { key: 'score', aliases: ['score', 'mark', 'score/mark', 'marks'] },
+   { key: 'program', aliases: ['program', 'program of study', 'programme', 'programme of study'] },
+   { key: 'remark', aliases: ['remark', 'remarks', 'note', 'notes'] },
+   { key: 'test_score', aliases: ['test', 'test score', 'testscore', 't_score', 't'] },
+   { key: 'lab_score', aliases: ['lab', 'lab score', 'labscore', 'l_score', 'l'] },
+   { key: 'exam_score', aliases: ['exam', 'exam score', 'examscore', 'e_score', 'e'] }
 ];
 
 function normalizeColumnName(name) {
@@ -240,8 +245,9 @@ function parseImportFile(file) {
   });
 }
 
-function validateImportRows(rawRows, yearKey, sem, activeCourse, existingRows) {
+function validateImportRows(rawRows, yearKey, sem, activeCourse, existingRows, hasComponentColumns, componentMismatch) {
   const errors = [];
+  const fileErrors = [];
   const valid = [];
   const seenPairs = new Set();
   const existingRegs = new Set();
@@ -260,6 +266,10 @@ function validateImportRows(rawRows, yearKey, sem, activeCourse, existingRows) {
     const code = String(row.code || '').trim();
     const unitRaw = row.unit;
     const scoreRaw = row.score;
+
+    if (componentMismatch) {
+      rowErrors.push(`Component columns detected but course "${activeCourse.course_code}" is in single-score mode. Toggle "Use Test/Lab/Exam breakdown" on the course, or remove Test/Lab/Exam columns from the file.`);
+    }
 
     if (!reg) rowErrors.push('Reg No is required.');
     else if (!/^\d{11}$/.test(reg)) rowErrors.push('Reg No must be exactly 11 digits.');
@@ -289,10 +299,37 @@ function validateImportRows(rawRows, yearKey, sem, activeCourse, existingRows) {
       }
     }
 
-    if (scoreRaw === '' || scoreRaw === null || scoreRaw === undefined) {
+    // Score validation: component mode or single-score mode
+    let computedScore = '';
+    if (hasComponentColumns) {
+      const testNum = row.test_score !== '' && row.test_score !== null && row.test_score !== undefined ? parseFloat(row.test_score) : 0;
+      const labNum = row.lab_score !== '' && row.lab_score !== null && row.lab_score !== undefined ? parseFloat(row.lab_score) : 0;
+      const examNum = row.exam_score !== '' && row.exam_score !== null && row.exam_score !== undefined ? parseFloat(row.exam_score) : 0;
+
+      if (row.test_score !== '' && row.test_score !== null && row.test_score !== undefined) {
+        const n = parseFloat(row.test_score);
+        if (isNaN(n) || n < 0) rowErrors.push('Test score must be 0 or greater.');
+      }
+      if (row.lab_score !== '' && row.lab_score !== null && row.lab_score !== undefined) {
+        const n = parseFloat(row.lab_score);
+        if (isNaN(n) || n < 0) rowErrors.push('Lab score must be 0 or greater.');
+      }
+      if (row.exam_score !== '' && row.exam_score !== null && row.exam_score !== undefined) {
+        const n = parseFloat(row.exam_score);
+        if (isNaN(n) || n < 0) rowErrors.push('Exam score must be 0 or greater.');
+      }
+
+      computedScore = String(testNum + labNum + examNum);
+      if (isNaN(parseFloat(computedScore)) || parseFloat(computedScore) < 0 || parseFloat(computedScore) > 100) {
+        rowErrors.push('Combined Test+Lab+Exam must total a number between 0 and 100.');
+      }
+    }
+
+    const finalScoreRaw = hasComponentColumns ? computedScore : scoreRaw;
+    if (finalScoreRaw === '' || finalScoreRaw === null || finalScoreRaw === undefined) {
       rowErrors.push('Score is required.');
     } else {
-      const scoreNum = parseFloat(scoreRaw);
+      const scoreNum = parseFloat(finalScoreRaw);
       if (isNaN(scoreNum) || scoreNum < 0 || scoreNum > 100) rowErrors.push('Score must be a number between 0 and 100.');
     }
 
@@ -311,12 +348,17 @@ function validateImportRows(rawRows, yearKey, sem, activeCourse, existingRows) {
         code,
         title: String(row.title || '').trim(),
         unit: unitRaw === '' || unitRaw === null ? '' : String(unitRaw),
-        score: scoreRaw === '' || scoreRaw === null ? '' : String(scoreRaw)
+        score: hasComponentColumns ? computedScore : (scoreRaw === '' || scoreRaw === null ? '' : String(scoreRaw)),
+        test_score: hasComponentColumns ? (row.test_score === '' || row.test_score === null || row.test_score === undefined ? '' : String(row.test_score)) : '',
+        lab_score: hasComponentColumns ? (row.lab_score === '' || row.lab_score === null || row.lab_score === undefined ? '' : String(row.lab_score)) : '',
+        exam_score: hasComponentColumns ? (row.exam_score === '' || row.exam_score === null || row.exam_score === undefined ? '' : String(row.exam_score)) : '',
+        program: String(row.program || '').trim(),
+        remark: String(row.remark || '').trim()
       });
     }
   });
 
-  return { valid, errors, total: rawRows.length };
+  return { valid, errors, fileErrors, total: rawRows.length };
 }
 
 function renderImportPreview(parsed, yearKey, sem, activeCourse) {
@@ -324,6 +366,10 @@ function renderImportPreview(parsed, yearKey, sem, activeCourse) {
   overlay.className = 'import-overlay';
   const courseTag = activeCourse
     ? ` — into course <b>${escHtml(activeCourse.course_code)}</b>`
+    : '';
+  const hasComponentCols = parsed.valid.some(r => r.test_score !== '' || r.lab_score !== '' || r.exam_score !== '');
+  const componentHeaders = hasComponentCols
+    ? `<th>Test</th><th>Lab</th><th>Exam</th>`
     : '';
   overlay.innerHTML = `
     <div class="import-modal">
@@ -333,6 +379,14 @@ function renderImportPreview(parsed, yearKey, sem, activeCourse) {
         <div><span class="num ok">${parsed.valid.length}</span><span class="lbl">Valid rows</span></div>
         <div><span class="num err">${parsed.errors.length}</span><span class="lbl">Rows with errors</span></div>
       </div>
+      ${parsed.fileErrors.length ? `
+        <div class="import-errors">
+          <strong>File-level errors</strong>
+          <ul>
+            ${parsed.fileErrors.map(e => `<li>${e}</li>`).join('')}
+          </ul>
+        </div>
+      ` : ''}
       ${parsed.errors.length ? `
         <div class="import-errors">
           <strong>Errors</strong>
@@ -344,10 +398,10 @@ function renderImportPreview(parsed, yearKey, sem, activeCourse) {
       <div class="import-table-wrap">
         <table>
           <thead>
-            <tr><th>Reg No</th><th>Student Name</th><th>Code</th><th>Course Title</th><th>Unit</th><th>Score</th></tr>
+            <tr><th>Reg No</th><th>Student Name</th><th>Code</th><th>Course Title</th><th>Unit</th>${componentHeaders}<th>Score</th><th>Program</th><th>Remark</th></tr>
           </thead>
           <tbody>
-            ${parsed.valid.map(r => `<tr><td>${escHtml(r.regNo)}</td><td>${escHtml(r.name)}</td><td>${escHtml(r.code)}</td><td>${escHtml(r.title)}</td><td>${escHtml(r.unit)}</td><td>${escHtml(r.score)}</td></tr>`).join('')}
+            ${parsed.valid.map(r => `<tr><td>${escHtml(r.regNo)}</td><td>${escHtml(r.name)}</td><td>${escHtml(r.code)}</td><td>${escHtml(r.title)}</td><td>${escHtml(r.unit)}</td>${hasComponentCols ? `<td>${escHtml(r.test_score)}</td><td>${escHtml(r.lab_score)}</td><td>${escHtml(r.exam_score)}</td>` : ''}<td>${escHtml(r.score)}</td><td>${escHtml(r.program)}</td><td>${escHtml(r.remark)}</td></tr>`).join('')}
           </tbody>
         </table>
       </div>
@@ -430,19 +484,33 @@ async function handleImportFile(input, yearKey, sem) {
       return;
     }
 
+    // Detect Test/Lab/Exam columns in the file
+    const hasComponentColumns = mapped.some(r =>
+      (r.test_score !== undefined && r.test_score !== null && String(r.test_score).trim() !== '') ||
+      (r.lab_score !== undefined && r.lab_score !== null && String(r.lab_score).trim() !== '') ||
+      (r.exam_score !== undefined && r.exam_score !== null && String(r.exam_score).trim() !== '')
+    );
+
     // Determine if we're importing from within an active course roster
     const activeCourse = (state.activeCourse && state.activeCourse.yearKey === yearKey && state.activeCourse.sem === sem)
       ? state.courses[yearKey]?.[sem]?.find(c => c.id === state.activeCourse.courseId)
       : null;
+
+    // Mismatch check: component columns in file but course is single-score mode
+    const componentMismatch = !!(activeCourse && hasComponentColumns && !activeCourse.use_score_components);
 
     // Get existing rows in the open course's roster for duplicate checking
     const existingRows = activeCourse
       ? state.years[yearKey][sem].filter(r => r.course_id === activeCourse.id)
       : [];
 
-    const parsed = validateImportRows(mapped, yearKey, sem, activeCourse, existingRows);
-    if (!parsed.valid.length && parsed.errors.length) {
-      alert(`No valid rows found. ${parsed.errors.length} row(s) have errors.`);
+    const parsed = validateImportRows(mapped, yearKey, sem, activeCourse, existingRows, hasComponentColumns, componentMismatch);
+    if (!parsed.valid.length && (parsed.errors.length || parsed.fileErrors.length)) {
+      if (parsed.fileErrors.length) {
+        alert(parsed.fileErrors.join('\n'));
+      } else {
+        alert(`No valid rows found. ${parsed.errors.length} row(s) have errors.`);
+      }
       input.value = '';
       return;
     }
@@ -497,11 +565,16 @@ function renderSemesterBlock(yearKey, sem) {
 
   let addCourseFormHtml = '';
   if (currentUser) {
-    addCourseFormHtml = `
+        addCourseFormHtml = `
       <div class="add-course-form" id="add-course-form-${yearKey}-${semSlug}">
         <input type="text" id="new-course-code-${yearKey}-${semSlug}" placeholder="Course Code (e.g. PHY101)" maxlength="20">
         <input type="text" id="new-course-title-${yearKey}-${semSlug}" placeholder="Course Title">
         <input type="number" id="new-course-unit-${yearKey}-${semSlug}" placeholder="Unit" min="1" step="1">
+         <input type="text" id="new-course-school-${yearKey}-${semSlug}" placeholder="School offering course (optional)">
+         <label class="checkbox-row" style="margin-top:6px">
+           <input type="checkbox" id="new-course-components-${yearKey}-${semSlug}" style="margin-right:6px">
+           <span style="font-size:12px;color:var(--muted)">Use Test/Lab/Exam breakdown instead of one score</span>
+         </label>
         <button class="btn gold" onclick="launchCourse('${yearKey}', '${sem}', '${semSlug}')">Launch Course</button>
       </div>
     `;
@@ -599,28 +672,56 @@ function renderCourseRoster(yearKey, sem) {
     return 0;
   });
 
-  const semSlug = sem.replace(/\s+/g, '-');
+   const semSlug = sem.replace(/\s+/g, '-');
+  const emptyColspan = course.use_score_components ? 14 : 11;
   let rowsHtml = '';
 
   if (matched.length === 0) {
-    rowsHtml = `<tr class="empty-row"><td colspan="9">No students added yet — add a row below or import from file.</td></tr>`;
+    rowsHtml = `<tr class="empty-row"><td colspan="${emptyColspan}">No students added yet — add a row below or import from file.</td></tr>`;
   } else {
     matched.forEach(({ r, idx }, sn) => {
       const gi = gradeInfo(r.score);
       const carryBadge = r.isCarryover ? ' <span class="carry-badge">C/O</span>' : '';
-      rowsHtml += `
-        <tr>
-          <td class="sn-cell">${sn + 1}</td>
-          <td><input value="${escAttr(r.regNo)}" placeholder="Reg No" maxlength="11" inputmode="numeric" pattern="\d{11}" oninput="updateCell('${yearKey}','${sem}',${idx},'regNo',sanitizeRegNo(this.value))" onblur="validateRegNo(this)"><span class="reg-no-warn" id="regNoWarn-${yearKey}-${sem}-${idx}" style="color:var(--red);font-size:11px"></span></td>
-          <td><input value="${escAttr(r.name)}" placeholder="Student name" oninput="updateCell('${yearKey}','${sem}',${idx},'name',this.value)"></td>
-          <td class="narrow"><input type="number" value="${escAttr(r.score)}" placeholder="Score" oninput="updateScore('${yearKey}','${sem}',${idx},this.value)"></td>
-          <td class="grade-cell grade-${gi.grade}" id="grade-${yearKey}-${sem}-${idx}">${gi.grade}</td>
-          <td class="point-cell" id="point-${yearKey}-${sem}-${idx}">${gi.point === null ? '' : gi.point}</td>
-          <td class="narrow" style="text-align:center"><input type="checkbox" ${r.isCarryover ? 'checked' : ''} onchange="updateCarryover('${yearKey}','${sem}',${idx},this.checked)" title="Carry-over retake"></td>
-          <td><span id="score-warn-${yearKey}-${sem}-${idx}" style="color:var(--red);font-size:11px"></span></td>
-          <td><button class="icon-btn" title="Delete row" onclick="deleteRow('${yearKey}','${sem}',${idx})">&#10005;</button></td>
-        </tr>
-      `;
+      if (course.use_score_components) {
+        const testVal = r.test_score !== undefined && r.test_score !== null && r.test_score !== '' ? escAttr(r.test_score) : '';
+        const labVal = r.lab_score !== undefined && r.lab_score !== null && r.lab_score !== '' ? escAttr(r.lab_score) : '';
+        const examVal = r.exam_score !== undefined && r.exam_score !== null && r.exam_score !== '' ? escAttr(r.exam_score) : '';
+        const totalVal = r.score !== '' && r.score !== null && r.score !== undefined ? escAttr(r.score) : '';
+        rowsHtml += `
+          <tr>
+            <td class="sn-cell">${sn + 1}</td>
+            <td><input value="${escAttr(r.regNo)}" placeholder="Reg No" maxlength="11" inputmode="numeric" pattern="\d{11}" oninput="updateCell('${yearKey}','${sem}',${idx},'regNo',sanitizeRegNo(this.value))" onblur="validateRegNo(this)"><span class="reg-no-warn" id="regNoWarn-${yearKey}-${sem}-${idx}" style="color:var(--red);font-size:11px"></span></td>
+            <td><input value="${escAttr(r.name)}" placeholder="Student name" oninput="updateCell('${yearKey}','${sem}',${idx},'name',this.value)"></td>
+            <td><input value="${escAttr(r.program)}" placeholder="Program" oninput="updateCell('${yearKey}','${sem}',${idx},'program',this.value)"></td>
+            <td><input value="${escAttr(r.remark)}" placeholder="Remark" oninput="updateCell('${yearKey}','${sem}',${idx},'remark',this.value)"></td>
+            <td class="narrow"><input type="number" value="${testVal}" placeholder="Test" min="0" oninput="updateComponent('${yearKey}','${sem}',${idx},'test_score',this.value)"></td>
+            <td class="narrow"><input type="number" value="${labVal}" placeholder="Lab" min="0" oninput="updateComponent('${yearKey}','${sem}',${idx},'lab_score',this.value)"></td>
+            <td class="narrow"><input type="number" value="${examVal}" placeholder="Exam" min="0" oninput="updateComponent('${yearKey}','${sem}',${idx},'exam_score',this.value)"></td>
+            <td class="narrow"><input type="number" value="${totalVal}" placeholder="Total" readonly style="background:var(--line-soft);color:var(--ink)" id="total-${yearKey}-${sem}-${idx}"></td>
+            <td class="grade-cell grade-${gi.grade}" id="grade-${yearKey}-${sem}-${idx}">${gi.grade}</td>
+            <td class="point-cell" id="point-${yearKey}-${sem}-${idx}">${gi.point === null ? '' : gi.point}</td>
+            <td class="narrow" style="text-align:center"><input type="checkbox" ${r.isCarryover ? 'checked' : ''} onchange="updateCarryover('${yearKey}','${sem}',${idx},this.checked)" title="Carry-over retit"></td>
+            <td><span id="score-warn-${yearKey}-${sem}-${idx}" style="color:var(--red);font-size:11px"></span></td>
+            <td><button class="icon-btn" title="Delete row" onclick="deleteRow('${yearKey}','${sem}',${idx})">&#10005;</button></td>
+          </tr>
+        `;
+      } else {
+        rowsHtml += `
+          <tr>
+            <td class="sn-cell">${sn + 1}</td>
+            <td><input value="${escAttr(r.regNo)}" placeholder="Reg No" maxlength="11" inputmode="numeric" pattern="\d{11}" oninput="updateCell('${yearKey}','${sem}',${idx},'regNo',sanitizeRegNo(this.value))" onblur="validateRegNo(this)"><span class="reg-no-warn" id="regNoWarn-${yearKey}-${sem}-${idx}" style="color:var(--red);font-size:11px"></span></td>
+            <td><input value="${escAttr(r.name)}" placeholder="Student name" oninput="updateCell('${yearKey}','${sem}',${idx},'name',this.value)"></td>
+            <td><input value="${escAttr(r.program)}" placeholder="Program" oninput="updateCell('${yearKey}','${sem}',${idx},'program',this.value)"></td>
+            <td><input value="${escAttr(r.remark)}" placeholder="Remark" oninput="updateCell('${yearKey}','${sem}',${idx},'remark',this.value)"></td>
+            <td class="narrow"><input type="number" value="${escAttr(r.score)}" placeholder="Score" oninput="updateScore('${yearKey}','${sem}',${idx},this.value)"></td>
+            <td class="grade-cell grade-${gi.grade}" id="grade-${yearKey}-${sem}-${idx}">${gi.grade}</td>
+            <td class="point-cell" id="point-${yearKey}-${sem}-${idx}">${gi.point === null ? '' : gi.point}</td>
+            <td class="narrow" style="text-align:center"><input type="checkbox" ${r.isCarryover ? 'checked' : ''} onchange="updateCarryover('${yearKey}','${sem}',${idx},this.checked)" title="Carry-over retit"></td>
+            <td><span id="score-warn-${yearKey}-${sem}-${idx}" style="color:var(--red);font-size:11px"></span></td>
+            <td><button class="icon-btn" title="Delete row" onclick="deleteRow('${yearKey}','${sem}',${idx})">&#10005;</button></td>
+          </tr>
+        `;
+      }
     });
   }
 
@@ -629,14 +730,16 @@ function renderCourseRoster(yearKey, sem) {
     <div class="semester" id="${rosterId}">
       <div class="semester-head">
         <h3>${sem}</h3>
-        <div class="toolbar">
-          <button class="btn gold" onclick="addRow('${yearKey}','${sem}')">+ Add student row</button>
-          <button class="btn secondary" onclick="document.getElementById('import-${yearKey}-${semSlug}').click()">Import from file</button>
-          <input type="file" id="import-${yearKey}-${semSlug}" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleImportFile(this, '${yearKey}', '${sem}')">
-          <button class="btn gold" onclick="exportCourseExcel('${course.id}', '${escAttr(course.course_code)}', '${yearKey}', '${sem}')">Export to Excel</button>
-          <button class="btn secondary" onclick="printCourse('${course.id}')">Print / PDF</button>
-          <button class="btn secondary" onclick="closeCourseRoster()">← Back to courses</button>
-        </div>
+         <div class="toolbar">
+           <button class="btn gold" onclick="addRow('${yearKey}','${sem}')">+ Add student row</button>
+           <button class="btn secondary" onclick="document.getElementById('import-${yearKey}-${semSlug}').click()">Import from file</button>
+           <input type="file" id="import-${yearKey}-${semSlug}" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleImportFile(this, '${yearKey}', '${sem}')">
+           <label class="checkbox-row" style="display:inline-flex;align-items:center;font-size:12px;color:var(--muted)" onclick="toggleCourseMode('${course.id}', event)">
+           <input type="checkbox" id="mode-toggle-${course.id}" ${course.use_score_components ? 'checked' : ''} style="margin-right:4px">Use Test/Lab/Exam breakdown</label>
+           <button class="btn gold" onclick="exportCourseExcel('${course.id}', '${escAttr(course.course_code)}', '${yearKey}', '${sem}')">Export to Excel</button>
+           <button class="btn secondary" onclick="printCourse('${course.id}')">Print / PDF</button>
+           <button class="btn secondary" onclick="closeCourseRoster()">← Back to courses</button>
+         </div>
       </div>
 
       <div class="course-roster-header">
@@ -650,13 +753,17 @@ function renderCourseRoster(yearKey, sem) {
           <tr>
             <th style="width:4%">S/N</th>
             <th style="width:12%">Reg No</th>
-            <th style="width:28%">Student Name</th>
-            <th style="width:10%">Score</th>
-            <th style="width:8%">Grade</th>
-            <th style="width:8%">Point</th>
-            <th style="width:8%">C/O</th>
-            <th style="width:12%"></th>
-            <th style="width:20%"></th>
+            <th style="width:18%">Student Name</th>
+            <th style="width:10%">Program</th>
+            <th style="width:10%">Remark</th>
+            ${course.use_score_components
+              ? `<th style="width:6%">Test</th><th style="width:6%">Lab</th><th style="width:6%">Exam</th><th style="width:6%">Total</th>`
+              : `<th style="width:8%">Score</th>`}
+            <th style="width:6%">Grade</th>
+            <th style="width:6%">Point</th>
+            <th style="width:6%">C/O</th>
+            <th style="width:8%"></th>
+            <th style="width:16%"></th>
           </tr>
         </thead>
         <tbody>${rowsHtml}</tbody>
@@ -667,6 +774,58 @@ function renderCourseRoster(yearKey, sem) {
 
 function closeCourseRoster() {
   state.activeCourse = null;
+  render();
+}
+
+async function toggleCourseMode(courseId, event) {
+  event && event.stopPropagation();
+  const cb = event && event.target ? event.target : document.getElementById(`mode-toggle-${courseId}`);
+  if (!cb) return;
+  const newMode = !cb.checked;
+  cb.checked = !newMode; // revert visually until confirmed
+
+  // Find the course in state and update
+  let courseObj = null;
+  for (const yearKey of YEAR_KEYS) {
+    for (const sem of SEMESTERS) {
+      const courseList = state.courses[yearKey]?.[sem] || [];
+      const c = courseList.find(c => c.id === courseId);
+      if (c) { courseObj = c; break; }
+    }
+    if (courseObj) break;
+  }
+  if (!courseObj) return;
+
+  const wasUsingComponents = !!courseObj.use_score_components;
+  const confirmed = confirm(
+    wasUsingComponents
+      ? 'Switch to single-score mode? Existing Test/Lab/Exam values stay in the database but will no longer be used for entry. Scores are preserved.'
+      : 'Switch to Test/Lab/Exam breakdown mode? Existing scores are preserved as-is; component fields start blank until you fill them in.'
+  );
+  if (!confirmed) {
+    cb.checked = wasUsingComponents;
+    return;
+  }
+  cb.checked = !wasUsingComponents;
+
+  courseObj.use_score_components = !wasUsingComponents;
+
+  // Persist to backend
+  if (currentUser && accessToken) {
+    try {
+      await apiFetch(`/api/courses/${encodeURIComponent(courseId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ use_score_components: courseObj.use_score_components })
+      });
+    } catch (err) {
+      console.error('Failed to update course mode:', err.message);
+      // Revert on failure
+      courseObj.use_score_components = wasUsingComponents;
+      cb.checked = wasUsingComponents;
+    }
+  }
+
+  saveToLocalStorage();
   render();
 }
 
@@ -681,12 +840,16 @@ async function launchCourse(yearKey, sem, semSlug) {
   const codeInput = document.getElementById(`new-course-code-${yearKey}-${semSlug}`);
   const titleInput = document.getElementById(`new-course-title-${yearKey}-${semSlug}`);
   const unitInput = document.getElementById(`new-course-unit-${yearKey}-${semSlug}`);
+  const schoolInput = document.getElementById(`new-course-school-${yearKey}-${semSlug}`);
+  const componentsInput = document.getElementById(`new-course-components-${yearKey}-${semSlug}`);
 
   if (!codeInput) return;
 
   const course_code = codeInput.value.trim().toUpperCase();
   const course_title = titleInput ? titleInput.value.trim() : '';
   const credit_unit = unitInput && unitInput.value.trim() ? parseFloat(unitInput.value.trim()) : null;
+  const offering_school = schoolInput ? schoolInput.value.trim() : '';
+  const use_score_components = componentsInput ? !!componentsInput.checked : false;
 
   if (!course_code) {
     alert('Course code is required.');
@@ -702,7 +865,9 @@ async function launchCourse(yearKey, sem, semSlug) {
         semester: sem,
         course_code,
         course_title,
-        credit_unit
+        credit_unit,
+        offering_school,
+        use_score_components
       })
     });
 
@@ -714,6 +879,8 @@ async function launchCourse(yearKey, sem, semSlug) {
       course_code: data.course_code,
       course_title: data.course_title || '',
       credit_unit: data.credit_unit ?? '',
+      offering_school: data.offering_school || '',
+      use_score_components: !!data.use_score_components,
       studentCount: 0
     });
     saveToLocalStorage();
@@ -722,6 +889,8 @@ async function launchCourse(yearKey, sem, semSlug) {
     codeInput.value = '';
     if (titleInput) titleInput.value = '';
     if (unitInput) unitInput.value = '';
+    if (schoolInput) schoolInput.value = '';
+    if (componentsInput) componentsInput.checked = false;
 
     // Open the newly created course's roster
     state.activeCourse = { yearKey, sem, courseId: data.id };
@@ -841,6 +1010,130 @@ function excelMergeHeader(sheet, rowNum, colCount, value, fontOpts) {
   if (fontOpts && fontOpts.fill) cell.fill = fontOpts.fill;
 }
 
+/* ===================== EXCEL METADATA BLOCK ===================== */
+
+const EXCEL_MIN_WIDTHS = {
+  'Student Name': 28, 'Name': 28, 'Full Name': 28,
+  'Reg No': 16,
+  'Course Code': 12, 'Code': 12,
+  'Course Title': 22, 'Title': 22,
+  'Program': 22, 'Remark': 22, 'Remarks': 22,
+  'Unit': 12, 'Credit Unit': 12,
+  'Score': 10, 'Test': 10, 'Lab': 10, 'Exam': 10, 'Total': 10,
+  'Grade': 12,
+  'Grade Point': 12, 'Point': 12,
+  'Carry-over': 12, 'C/O': 12,
+  'S/N': 8,
+  'Session': 14, 'Year': 10,
+  'Semester': 18
+};
+
+const EXCEL_DEFAULT_MIN_WIDTH = 10;
+
+function excelGetMinWidth(header) {
+  return EXCEL_MIN_WIDTHS[header] || EXCEL_DEFAULT_MIN_WIDTH;
+}
+
+/* Writes a two-column label:value metadata block followed by a blank
+   spacer row. Returns the row number of the data table header.
+
+   Layout:
+     Row 1   : "FEDERAL UNIVERSITY OF TECHNOLOGY, OWERRI" (merged, bold, centered)
+     Row 2   : documentTitle (merged, bold, centered)
+     Row 3   : School of Student: <faculty>  |  Semester: <semester>
+     Row 4   : Department: <department>      |  Session: <session>  (+ Date for non-course-scoped)
+     Row 5-6 : (course-scoped only)
+     Last    : blank spacer row
+     Return  : row after spacer (data header row)
+*/
+function excelWriteMetadataBlock(sheet, opts) {
+  const {
+    colCount,
+    documentTitle,
+    faculty,
+    department,
+    semester,
+    session,
+    isCourseScoped,
+    courseTitle,
+    courseCode,
+    creditUnit,
+    offeringSchool,
+    exportDate
+  } = opts;
+
+  let row = 1;
+  const exportDateStr = exportDate || new Date().toLocaleString('en-GB', {
+    day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit'
+  });
+
+  // Row 1: University name (merged across full width)
+  excelMergeHeader(sheet, row, colCount, 'FEDERAL UNIVERSITY OF TECHNOLOGY, OWERRI', { font: { bold: true, size: 14 } });
+  sheet.getRow(row).height = 40;
+  row++;
+
+  // Row 2: Document title (merged)
+  excelMergeHeader(sheet, row, colCount, documentTitle, { font: { bold: true, size: 13 } });
+  sheet.getRow(row).height = 28;
+  row++;
+
+  // Row 3: School of Student | Semester
+  var r3 = sheet.getRow(row);
+  r3.getCell(1).value = 'School of Student:';
+  r3.getCell(2).value = faculty || '';
+  r3.getCell(3).value = 'Semester:';
+  r3.getCell(4).value = semester || '';
+  [1, 3].forEach(c => { r3.getCell(c).font = { bold: true }; });
+  sheet.getRow(row).height = 22;
+  row++;
+
+  // Row 4: Department | Session (+ Date for non-course-scoped)
+  var r4 = sheet.getRow(row);
+  r4.getCell(1).value = 'Department:';
+  r4.getCell(2).value = department || '';
+  r4.getCell(3).value = 'Session:';
+  r4.getCell(4).value = session || '';
+  if (!isCourseScoped) {
+    r4.getCell(5).value = 'Date:';
+    r4.getCell(6).value = exportDateStr;
+    r4.getCell(5).font = { bold: true };
+  }
+  [1, 3].forEach(c => { r4.getCell(c).font = { bold: true }; });
+  sheet.getRow(row).height = 22;
+  row++;
+
+  if (isCourseScoped) {
+    // Row 5: Title of Course | Course Code | Units
+    var r5 = sheet.getRow(row);
+    r5.getCell(1).value = 'Title of Course:';
+    r5.getCell(2).value = courseTitle || '';
+    r5.getCell(3).value = 'Course Code:';
+    r5.getCell(4).value = courseCode || '';
+    r5.getCell(5).value = 'Units:';
+    r5.getCell(6).value = creditUnit !== undefined && creditUnit !== null && creditUnit !== '' ? creditUnit : '';
+    [1, 3, 5].forEach(c => { r5.getCell(c).font = { bold: true }; });
+    sheet.getRow(row).height = 22;
+    row++;
+
+    // Row 6: School Offering Course | Date
+    var r6 = sheet.getRow(row);
+    r6.getCell(1).value = 'School Offering Course:';
+    r6.getCell(2).value = offeringSchool || '';
+    r6.getCell(3).value = 'Date:';
+    r6.getCell(4).value = exportDateStr;
+    [1, 3].forEach(c => { r6.getCell(c).font = { bold: true }; });
+    sheet.getRow(row).height = 22;
+    row++;
+  }
+
+  // Blank spacer row
+  sheet.getRow(row).height = 14;
+  row++;
+
+  return row;
+}
+
 function excelHeaderRow(sheet, rowNum, headers) {
   const row = sheet.getRow(rowNum);
   headers.forEach((headerText, idx) => {
@@ -859,10 +1152,11 @@ function excelStyleDataRow(row, colCount) {
   }
 }
 
-function excelContentWidths(headers, dataRows) {
+function excelContentWidths(headers, dataRows, useMinWidths) {
   const widths = headers.map(h => {
     const len = String(h === undefined || h === null ? '' : h).length;
-    return Math.min(Math.max(len + 3, 8), 50);
+    const base = Math.min(Math.max(len + 3, 8), 50);
+    return useMinWidths ? Math.max(base, excelGetMinWidth(h)) : base;
   });
   if (dataRows) {
     dataRows.forEach(rowValues => {
@@ -870,16 +1164,32 @@ function excelContentWidths(headers, dataRows) {
         const val = rowValues[i];
         if (val !== undefined && val !== null && val !== '') {
           const len = String(val).length;
-          if (len + 3 > widths[i]) widths[i] = Math.min(len + 3, 50);
+          const computed = Math.min(len + 3, 50);
+          if (useMinWidths) {
+            widths[i] = Math.max(widths[i], Math.max(computed, excelGetMinWidth(headers[i])));
+          } else if (len + 3 > widths[i]) {
+            widths[i] = computed;
+          }
         }
       }
     });
   }
-  return widths;
+  // Clip to max 60 for generous layout
+  return widths.map(w => Math.min(w, 60));
 }
 
 function excelSetWidths(sheet, widths) {
   widths.forEach((w, idx) => { sheet.getColumn(idx + 1).width = w; });
+}
+
+function excelApplyMetadataWidths(widths, colCount) {
+  // The metadata block writes label:value pairs in the first 6 columns.
+  // Ensure those columns are wide enough for the longest metadata labels.
+  const metaMins = [21, 20, 15, 16, 15, 26];
+  for (let i = 0; i < Math.min(metaMins.length, widths.length); i++) {
+    widths[i] = Math.max(widths[i], metaMins[i]);
+  }
+  return widths;
 }
 
 function excelAddLogosToSheet(workbook, sheet, colCount, logoBuffer) {
@@ -900,13 +1210,15 @@ async function excelAddLogos(workbook, sheet, colCount) {
   excelAddLogosToSheet(workbook, sheet, colCount, logoBuffer);
 }
 
-function excelSetRowHeights(sheet, startRow, dataCount, headerHeight, dataHeight) {
-  for (let r = 1; r <= startRow; r++) {
-    sheet.getRow(r).height = headerHeight;
-  }
-  for (let r = startRow + 1; r <= startRow + dataCount; r++) {
+function excelSetRowHeights(sheet, headerRowNum, dataCount, headerHeight, dataHeight) {
+  sheet.getRow(headerRowNum).height = headerHeight;
+  for (let r = headerRowNum + 1; r <= headerRowNum + dataCount; r++) {
     sheet.getRow(r).height = dataHeight;
   }
+}
+
+function excelShouldIncludeProgramData(rows) {
+  return (rows || []).some(r => (r.program || '').trim() !== '' || (r.remark || '').trim() !== '');
 }
 
 async function exportCourseExcel(courseId, courseCode, yearKey, sem) {
@@ -922,30 +1234,51 @@ async function exportCourseExcel(courseId, courseCode, yearKey, sem) {
   const safeYear = yearKey.replace(/[:\\\/\?\*\[\]]/g, '');
   const safeSem = sem.replace(/[:\\\/\?\*\[\]]/g, '');
   const session = state.academicSessions[yearKey] || '';
-  const title = `${yearKey} — ${sem} — ${courseCode}`;
+
+  const course = findCourseById(courseId) || { course_code: courseCode, course_title: '', credit_unit: '', offering_school: '', use_score_components: false };
+  const useComponents = !!course.use_score_components;
 
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet(safeSem || 'Sheet1');
 
-  const headers = ['Reg No', 'Student Name', 'Score', 'Grade', 'Grade Point', 'Carry-over'];
-  const colCount = headers.length;
   const sortedRows = rows.slice().sort((a, b) => {
     const nameA = (a.name || '').trim().toLowerCase();
     const nameB = (b.name || '').trim().toLowerCase();
     return nameA < nameB ? -1 : nameA > nameB ? 1 : 0;
   });
 
-  // Letterhead (dynamic span, session, logos)
-  excelMergeHeader(sheet, 1, colCount, META.university, { font: { bold: true, size: 14 } });
-  excelMergeHeader(sheet, 2, colCount, state.meta.school);
-  excelMergeHeader(sheet, 3, colCount, state.meta.department);
-  excelMergeHeader(sheet, 4, colCount, title);
-
-  let headerRowNum = 5;
-  if (session) {
-    excelMergeHeader(sheet, 5, colCount, session, { font: { italic: true, size: 11 } });
-    headerRowNum = 6;
+  // Build headers: S/N | Full Name | Reg No | [Program] | <Score or Test|Lab|Exam|Total> | Grade | [Remark]
+  const includeProgram = (sortedRows || []).some(r => (r.program || '').trim() !== '');
+  const includeRemark = (sortedRows || []).some(r => (r.remark || '').trim() !== '');
+  const headers = ['S/N', 'Full Name', 'Reg No'];
+  if (includeProgram) headers.push('Program');
+  if (useComponents) {
+    headers.push('Test', 'Lab', 'Exam', 'Total');
+  } else {
+    headers.push('Score');
   }
+  headers.push('Grade');
+  if (includeRemark) headers.push('Remark');
+  const colCount = headers.length;
+
+  // Metadata block (course-scoped)
+  const headerRowNum = excelWriteMetadataBlock(sheet, {
+    colCount,
+    documentTitle: 'OFFICIAL RESULT SHEET',
+    faculty: state.meta.school,
+    department: state.meta.department,
+    semester: sem,
+    session: session,
+    isCourseScoped: true,
+    courseTitle: course.course_title || '',
+    courseCode: courseCode,
+    creditUnit: course.credit_unit,
+    offeringSchool: course.offering_school || '',
+    exportDate: new Date().toLocaleString('en-GB', {
+      day: '2-digit', month: 'short', year: 'numeric',
+      hour: '2-digit', minute: '2-digit'
+    })
+  });
 
   await excelAddLogos(workbook, sheet, colCount);
 
@@ -957,22 +1290,49 @@ async function exportCourseExcel(courseId, courseCode, yearKey, sem) {
   sortedRows.forEach((r, idx) => {
     const excelRow = sheet.getRow(headerRowNum + 1 + idx);
     const gi = gradeInfo(r.score);
-    excelRow.getCell(1).value = r.regNo;
-    excelRow.getCell(2).value = r.name;
-    excelRow.getCell(3).value = r.score === '' ? null : parseFloat(r.score);
-    excelRow.getCell(4).value = gi.grade || '';
-    excelRow.getCell(5).value = gi.point === null ? '' : gi.point;
-    excelRow.getCell(6).value = r.isCarryover ? 'Yes' : 'No';
+    let col = 1;
+    excelRow.getCell(col++).value = idx + 1;
+    excelRow.getCell(col++).value = r.name;
+    excelRow.getCell(col++).value = r.regNo;
+    if (includeProgram) {
+      excelRow.getCell(col++).value = r.program || '';
+    }
+    if (useComponents) {
+      excelRow.getCell(col++).value = r.test_score !== '' && r.test_score !== null && r.test_score !== undefined ? parseFloat(r.test_score) : null;
+      excelRow.getCell(col++).value = r.lab_score !== '' && r.lab_score !== null && r.lab_score !== undefined ? parseFloat(r.lab_score) : null;
+      excelRow.getCell(col++).value = r.exam_score !== '' && r.exam_score !== null && r.exam_score !== undefined ? parseFloat(r.exam_score) : null;
+      excelRow.getCell(col++).value = r.score === '' ? null : parseFloat(r.score);
+    } else {
+      excelRow.getCell(col++).value = r.score === '' ? null : parseFloat(r.score);
+    }
+    excelRow.getCell(col++).value = gi.grade || '';
+    if (includeRemark) {
+      excelRow.getCell(col++).value = r.remark || '';
+    }
     excelStyleDataRow(excelRow, colCount);
-    dataRowsForWidth.push([r.regNo, r.name, r.score === '' ? null : parseFloat(r.score), gi.grade || '', gi.point === null ? '' : gi.point, r.isCarryover ? 'Yes' : 'No']);
+    const rowData = [idx + 1, r.name, r.regNo];
+    if (includeProgram) rowData.push(r.program || '');
+    if (useComponents) {
+      rowData.push(
+        r.test_score !== '' && r.test_score !== null && r.test_score !== undefined ? parseFloat(r.test_score) : null,
+        r.lab_score !== '' && r.lab_score !== null && r.lab_score !== undefined ? parseFloat(r.lab_score) : null,
+        r.exam_score !== '' && r.exam_score !== null && r.exam_score !== undefined ? parseFloat(r.exam_score) : null,
+        r.score === '' ? null : parseFloat(r.score)
+      );
+    } else {
+      rowData.push(r.score === '' ? null : parseFloat(r.score));
+    }
+    rowData.push(gi.grade || '');
+    if (includeRemark) rowData.push(r.remark || '');
+    dataRowsForWidth.push(rowData);
   });
 
-  // Content-based column widths
-  const colWidths = excelContentWidths(headers, dataRowsForWidth);
+  // Generous column widths with metadata label minimums
+  const colWidths = excelApplyMetadataWidths(excelContentWidths(headers, dataRowsForWidth, true), colCount);
   excelSetWidths(sheet, colWidths);
 
-  // Row heights
-  excelSetRowHeights(sheet, headerRowNum, sortedRows.length, 40, 16);
+  // Row heights (only for table header + data rows, not metadata)
+  excelSetRowHeights(sheet, headerRowNum, sortedRows.length, 24, 16);
 
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -1018,21 +1378,42 @@ function printCourse(courseId) {
     return nameA < nameB ? -1 : nameA > nameB ? 1 : 0;
   });
 
+  const useComponents = !!course.use_score_components;
   let tableRows = '';
   sortedRows.forEach((r, i) => {
     const gi = gradeInfo(r.score);
     const carryBadge = r.isCarryover ? ' <span class="carry-badge">C/O</span>' : '';
-    tableRows += `
-      <tr>
-        <td style="text-align:center">${i + 1}</td>
-        <td>${escHtml(r.regNo)}</td>
-        <td>${escHtml(r.name)}</td>
-        <td style="text-align:center">${escHtml(r.score)}</td>
-        <td style="text-align:center;font-weight:600">${gi.grade}</td>
-        <td style="text-align:center">${gi.point === null ? '' : gi.point}</td>
-        <td style="text-align:center">${carryBadge}</td>
-      </tr>
-    `;
+    if (useComponents) {
+      const testVal = r.test_score !== '' && r.test_score !== null && r.test_score !== undefined ? r.test_score : '';
+      const labVal = r.lab_score !== '' && r.lab_score !== null && r.lab_score !== undefined ? r.lab_score : '';
+      const examVal = r.exam_score !== '' && r.exam_score !== null && r.exam_score !== undefined ? r.exam_score : '';
+      tableRows += `
+        <tr>
+          <td style="text-align:center">${i + 1}</td>
+          <td>${escHtml(r.regNo)}</td>
+          <td>${escHtml(r.name)}</td>
+          <td style="text-align:center">${escHtml(testVal)}</td>
+          <td style="text-align:center">${escHtml(labVal)}</td>
+          <td style="text-align:center">${escHtml(examVal)}</td>
+          <td style="text-align:center;font-weight:600">${escHtml(r.score)}</td>
+          <td style="text-align:center">${gi.grade}</td>
+          <td style="text-align:center">${gi.point === null ? '' : gi.point}</td>
+          <td style="text-align:center">${carryBadge}</td>
+        </tr>
+      `;
+    } else {
+      tableRows += `
+        <tr>
+          <td style="text-align:center">${i + 1}</td>
+          <td>${escHtml(r.regNo)}</td>
+          <td>${escHtml(r.name)}</td>
+          <td style="text-align:center">${escHtml(r.score)}</td>
+          <td style="text-align:center;font-weight:600">${gi.grade}</td>
+          <td style="text-align:center">${gi.point === null ? '' : gi.point}</td>
+          <td style="text-align:center">${carryBadge}</td>
+        </tr>
+      `;
+    }
   });
 
   let printWindow = window.open('', '_blank', 'width=900,height=700');
@@ -1075,11 +1456,13 @@ function printCourse(courseId) {
             <tr>
               <th style="width:5%">S/N</th>
               <th style="width:18%">Reg No</th>
-              <th style="width:30%">Student Name</th>
-              <th style="width:12%">Score</th>
-              <th style="width:10%">Grade</th>
-              <th style="width:10%">Point</th>
-              <th style="width:10%">C/O</th>
+              <th style="width:26%">Student Name</th>
+              ${useComponents
+                ? `<th style="width:6%">Test</th><th style="width:6%">Lab</th><th style="width:6%">Exam</th><th style="width:7%">Total</th>`
+                : `<th style="width:12%">Score</th>`}
+              <th style="width:8%">Grade</th>
+              <th style="width:6%">Point</th>
+              <th style="width:4%">C/O</th>
             </tr>
           </thead>
           <tbody>${tableRows}</tbody>
@@ -1179,6 +1562,49 @@ function updateScore(yearKey, sem, idx, value) {
   scheduleSave(yearKey, sem, idx);
 }
 
+function updateComponent(yearKey, sem, idx, field, value) {
+  const row = state.years[yearKey][sem][idx];
+  const warn = document.getElementById(`score-warn-${yearKey}-${sem}-${idx}`);
+
+  const num = parseFloat(value);
+  if (value !== '' && (isNaN(num) || num < 0)) {
+    if (warn) { warn.textContent = 'Component must be 0 or greater.'; warn.style.color = 'var(--red)'; }
+    return;
+  }
+  if (warn) { warn.textContent = ''; }
+
+  row[field] = value === '' ? '' : String(num);
+
+  const testVal = row.test_score !== '' && row.test_score !== undefined ? parseFloat(row.test_score) : 0;
+  const labVal = row.lab_score !== '' && row.lab_score !== undefined ? parseFloat(row.lab_score) : 0;
+  const examVal = row.exam_score !== '' && row.exam_score !== undefined ? parseFloat(row.exam_score) : 0;
+  const total = testVal + labVal + examVal;
+
+  // Preserve existing score when no components have been entered yet (mode-switch edge case)
+  const hasAnyComponent = row.test_score !== '' || row.lab_score !== '' || row.exam_score !== '';
+  if (hasAnyComponent) {
+    row.score = total > 0 ? String(total) : '';
+    if (total > 100) {
+      if (warn) { warn.textContent = 'Total score must be 0–100.'; warn.style.color = 'var(--red)'; }
+    }
+  } else {
+    // Leave existing score untouched (from mode switch or fresh row)
+  }
+
+  const totalCell = document.getElementById(`total-${yearKey}-${sem}-${idx}`);
+  if (totalCell) totalCell.value = row.score !== '' ? String(row.score) : '';
+
+  const gi = gradeInfo(row.score === '' ? '' : row.score);
+  const gradeCell = document.getElementById(`grade-${yearKey}-${sem}-${idx}`);
+  const pointCell = document.getElementById(`point-${yearKey}-${sem}-${idx}`);
+  if (gradeCell) { gradeCell.textContent = gi.grade; gradeCell.className = 'grade-cell grade-' + gi.grade; }
+  if (pointCell) { pointCell.textContent = gi.point === null ? '' : gi.point; }
+
+  refreshSummary(yearKey, sem);
+  saveToLocalStorage();
+  scheduleSave(yearKey, sem, idx);
+}
+
 function updateCarryover(yearKey, sem, idx, checked) {
   state.years[yearKey][sem][idx].isCarryover = !!checked;
   saveToLocalStorage();
@@ -1273,7 +1699,7 @@ async function saveRowRemote(yearKey, sem, idx) {
   if (!currentUser || !accessToken) return;
   const row = state.years[yearKey][sem][idx];
   if (!row) return;
-  if (!row.regNo && !row.name && !row.code && !row.title && !row.unit && !row.score) return;
+     if (!row.regNo && !row.name && !row.code && !row.title && !row.unit && !row.score && !row.test_score && !row.lab_score && !row.exam_score) return;
 
   // Client-side duplicate check: scoped to the currently-open course only
   if (state.activeCourse && state.activeCourse.yearKey === yearKey && state.activeCourse.sem === sem && row.course_id) {
@@ -1296,8 +1722,13 @@ async function saveRowRemote(yearKey, sem, idx) {
     course_title: row.title || null,
     credit_unit: row.unit === '' ? null : parseFloat(row.unit),
     score: row.score === '' ? null : parseFloat(row.score),
+    test_score: row.test_score === '' ? null : (row.test_score !== undefined && row.test_score !== null ? parseFloat(row.test_score) : null),
+    lab_score: row.lab_score === '' ? null : (row.lab_score !== undefined && row.lab_score !== null ? parseFloat(row.lab_score) : null),
+    exam_score: row.exam_score === '' ? null : (row.exam_score !== undefined && row.exam_score !== null ? parseFloat(row.exam_score) : null),
     is_carryover: !!row.isCarryover,
-    course_id: row.course_id || null
+    course_id: row.course_id || null,
+    program: row.program || null,
+    remark: row.remark || null
   };
 
   try {
@@ -1344,8 +1775,13 @@ async function loadFromApi() {
         title: row.course_title || '',
         unit: row.credit_unit ?? '',
         score: row.score ?? '',
+        test_score: row.test_score ?? '',
+        lab_score: row.lab_score ?? '',
+        exam_score: row.exam_score ?? '',
         isCarryover: !!row.is_carryover,
-        course_id: row.course_id || null
+        course_id: row.course_id || null,
+        program: row.program || '',
+        remark: row.remark || ''
       });
     });
 
@@ -1373,6 +1809,8 @@ async function loadCourses() {
         course_code: c.course_code || '',
         course_title: c.course_title || '',
         credit_unit: c.credit_unit ?? '',
+        offering_school: c.offering_school || '',
+        use_score_components: !!c.use_score_components,
         studentCount: c.studentCount || 0
       });
     });
@@ -1607,7 +2045,7 @@ function generateTranscript() {
         tableRows += `<tr><td>${escHtml(r.code)}</td><td>${escHtml(r.title)}</td><td style="text-align:center">${escHtml(r.unit)}</td>
           <td style="text-align:center">${escHtml(r.score)}</td><td style="text-align:center;font-weight:600">${gi.grade}</td>
           <td style="text-align:center">${gi.point === null ? '' : gi.point}</td></tr>`;
-        flatRows.push({ Year: yearKey, Semester: sem, RegNo: regNo, Name: r.name, Code: r.code, Title: r.title, Unit: r.unit, Score: r.score, Grade: gi.grade, Point: gi.point });
+        flatRows.push({ Year: yearKey, Semester: sem, RegNo: regNo, Name: r.name, Code: r.code, Title: r.title, Unit: r.unit, Score: r.score, Grade: gi.grade, Point: gi.point, Program: r.program || '', Remark: r.remark || '' });
       });
 
       const semGpaText = stats.gpa !== null ? stats.gpa.toFixed(2) : '—';
@@ -1793,19 +2231,27 @@ async function exportCumulativeExcel() {
   const sheet = workbook.addWorksheet(sem.replace(/[:\\\/\?\*\[\]]/g, ''));
 
   const session = state.academicSessions[yearKey] || '';
-  const colCount = codes.length + 4;
-  const headers = ['S/N', 'Name', 'Reg No', ...codes, 'Remarks'];
+  const includeProgRem = excelShouldIncludeProgramData(rows);
+  const baseHeaders = ['S/N', 'Name', 'Reg No', ...codes];
+  const headers = includeProgRem
+    ? [...baseHeaders, 'Program', 'Remark', 'Remarks']
+    : [...baseHeaders, 'Remarks'];
+  const colCount = headers.length;
 
-  excelMergeHeader(sheet, 1, colCount, META.university, { font: { bold: true, size: 14 } });
-  excelMergeHeader(sheet, 2, colCount, state.meta.school);
-  excelMergeHeader(sheet, 3, colCount, state.meta.department);
-  excelMergeHeader(sheet, 4, colCount, `${yearKey} — ${sem}`);
-
-  let headerRowNum = 5;
-  if (session) {
-    excelMergeHeader(sheet, 5, colCount, session, { font: { italic: true, size: 11 } });
-    headerRowNum = 6;
-  }
+  // Metadata block (non-course-scoped: no course-specific rows)
+  const headerRowNum = excelWriteMetadataBlock(sheet, {
+    colCount,
+    documentTitle: 'CUMULATIVE RESULT SHEET',
+    faculty: state.meta.school,
+    department: state.meta.department,
+    semester: sem,
+    session: session,
+    isCourseScoped: false,
+    exportDate: new Date().toLocaleString('en-GB', {
+      day: '2-digit', month: 'short', year: 'numeric',
+      hour: '2-digit', minute: '2-digit'
+    })
+  });
 
   await excelAddLogos(workbook, sheet, colCount);
   excelHeaderRow(sheet, headerRowNum, headers);
@@ -1832,8 +2278,21 @@ async function exportCumulativeExcel() {
       }
       cell.alignment = { horizontal: 'center', vertical: 'middle' };
     });
-    excelRow.getCell(4 + codes.length).value = remark;
-    excelRow.getCell(4 + codes.length).alignment = { horizontal: 'center', vertical: 'middle' };
+    const remColIdx = 4 + codes.length;
+    if (includeProgRem) {
+      const prog = rows.find(r => (r.regNo || '').trim() === stu.regNo && (r.program || '').trim());
+      excelRow.getCell(remColIdx).value = prog ? (prog.program || '') : '';
+      excelRow.getCell(remColIdx).alignment = { horizontal: 'center', vertical: 'middle' };
+      rowValues.push(prog ? (prog.program || '') : '');
+      const remarkCell = excelRow.getCell(remColIdx + 1);
+      const stuRemarks = rows.filter(r => (r.regNo || '').trim() === stu.regNo && (r.remark || '').trim());
+      remarkCell.value = stuRemarks.length ? (stuRemarks[0].remark || '') : '';
+      remarkCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      rowValues.push(stuRemarks.length ? (stuRemarks[0].remark || '') : '');
+    }
+    const computedRemarkCol = remColIdx + (includeProgRem ? 2 : 0);
+    excelRow.getCell(computedRemarkCol).value = remark;
+    excelRow.getCell(computedRemarkCol).alignment = { horizontal: 'center', vertical: 'middle' };
     rowValues.push(remark);
     excelRow.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
     excelRow.getCell(2).alignment = { horizontal: 'center', vertical: 'middle' };
@@ -1842,8 +2301,16 @@ async function exportCumulativeExcel() {
     dataRowsForWidth.push(rowValues);
   });
 
-  excelSetWidths(sheet, excelContentWidths(headers, dataRowsForWidth));
-  excelSetRowHeights(sheet, headerRowNum, students.length, 40, 16);
+  // Generous column widths with content-fit plus minimums, plus metadata label minimums
+  const colWidths = excelApplyMetadataWidths(excelContentWidths(headers, dataRowsForWidth, true), colCount);
+  // Course code columns (indices 3 to 3+codes.length-1) need minimum 12
+  for (let i = 3; i < 3 + codes.length; i++) {
+    colWidths[i] = Math.max(colWidths[i] || 0, 12);
+  }
+  excelSetWidths(sheet, colWidths);
+
+  // Row heights (only for header + data rows, not metadata)
+  excelSetRowHeights(sheet, headerRowNum, students.length, 24, 16);
 
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -1863,7 +2330,6 @@ async function exportCumulativeExcel() {
 async function exportSemesterExcel(yearKey, sem) {
   const rows = state.years[yearKey][sem];
   const session = state.academicSessions[yearKey] || '';
-  const title = `${yearKey} — ${sem}`
 
   showLoading('Exporting to Excel…');
   try {
@@ -1871,19 +2337,27 @@ async function exportSemesterExcel(yearKey, sem) {
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet(sem.replace(/[:\\\/\?\*\[\]]/g, '') || 'Sheet1');
 
-  const headers = ['S/N', 'Reg No', 'Student Name', 'Course Code', 'Course Title', 'Credit Unit', 'Score', 'Grade', 'Grade Point'];
+  // Build headers (with optional Program/Remark columns)
+  const headers = ['S/N', 'Reg No', 'Student Name'];
+  const includeProgRem = excelShouldIncludeProgramData(rows);
+  if (includeProgRem) headers.push('Program', 'Remark');
+  headers.push('Course Code', 'Course Title', 'Credit Unit', 'Score', 'Grade', 'Grade Point');
   const colCount = headers.length;
 
-  excelMergeHeader(sheet, 1, colCount, META.university, { font: { bold: true, size: 14 } });
-  excelMergeHeader(sheet, 2, colCount, state.meta.school);
-  excelMergeHeader(sheet, 3, colCount, state.meta.department);
-  excelMergeHeader(sheet, 4, colCount, title);
-
-  let headerRowNum = 5;
-  if (session) {
-    excelMergeHeader(sheet, 5, colCount, session, { font: { italic: true, size: 11 } });
-    headerRowNum = 6;
-  }
+  // Metadata block (non-course-scoped: no course-specific rows)
+  const headerRowNum = excelWriteMetadataBlock(sheet, {
+    colCount,
+    documentTitle: 'OFFICIAL RESULT SHEET',
+    faculty: state.meta.school,
+    department: state.meta.department,
+    semester: sem,
+    session: session,
+    isCourseScoped: false,
+    exportDate: new Date().toLocaleString('en-GB', {
+      day: '2-digit', month: 'short', year: 'numeric',
+      hour: '2-digit', minute: '2-digit'
+    })
+  });
 
   await excelAddLogos(workbook, sheet, colCount);
   excelHeaderRow(sheet, headerRowNum, headers);
@@ -1893,14 +2367,16 @@ async function exportSemesterExcel(yearKey, sem) {
     const gi = gradeInfo(r.score);
     const excelRow = sheet.getRow(headerRowNum + 1 + idx);
     const scoreVal = r.score === '' ? null : parseFloat(r.score);
-    const values = [idx + 1, r.regNo, r.name, r.code, r.title, r.unit, scoreVal, gi.grade || '', gi.point === null ? '' : gi.point];
+    const values = [idx + 1, r.regNo, r.name];
+    if (includeProgRem) values.push(r.program || '', r.remark || '');
+    values.push(r.code, r.title, r.unit, scoreVal, gi.grade || '', gi.point === null ? '' : gi.point);
     values.forEach((val, colIdx) => { excelRow.getCell(colIdx + 1).value = val; });
     excelStyleDataRow(excelRow, colCount);
     dataRowsForWidth.push(values);
   });
 
-  excelSetWidths(sheet, excelContentWidths(headers, dataRowsForWidth));
-  excelSetRowHeights(sheet, headerRowNum, rows.length, 40, 16);
+  excelSetWidths(sheet, excelApplyMetadataWidths(excelContentWidths(headers, dataRowsForWidth, true), colCount));
+  excelSetRowHeights(sheet, headerRowNum, rows.length, 24, 16);
 
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -1918,28 +2394,40 @@ async function exportSemesterExcel(yearKey, sem) {
 async function exportYearExcel(yearKey) {
   const session = state.academicSessions[yearKey] || '';
   const workbook = new ExcelJS.Workbook();
-  const headers = ['S/N', 'Reg No', 'Student Name', 'Course Code', 'Course Title', 'Credit Unit', 'Score', 'Grade', 'Grade Point'];
+  const exportDateStr = new Date().toLocaleString('en-GB', {
+    day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit'
+  });
+
+  // Check all semesters for program/remark data
+  const allRows = [];
+  SEMESTERS.forEach(sem => { (state.years[yearKey][sem] || []).forEach(r => allRows.push(r)); });
+  const includeProgRem = excelShouldIncludeProgramData(allRows);
+
+  const headers = ['S/N', 'Reg No', 'Student Name'];
+  if (includeProgRem) headers.push('Program', 'Remark');
+  headers.push('Course Code', 'Course Title', 'Credit Unit', 'Score', 'Grade', 'Grade Point');
   const colCount = headers.length;
 
   showLoading('Exporting to Excel…');
   try {
   SEMESTERS.forEach(sem => {
     const rows = state.years[yearKey][sem];
-    const title = `${yearKey} — ${sem}`
 
     const safeSem = sem.replace(/[:\\\/\?\*\[\]]/g, '');
     const sheet = workbook.addWorksheet(safeSem || 'Sheet1');
 
-    excelMergeHeader(sheet, 1, colCount, META.university, { font: { bold: true, size: 14 } });
-    excelMergeHeader(sheet, 2, colCount, state.meta.school);
-    excelMergeHeader(sheet, 3, colCount, state.meta.department);
-    excelMergeHeader(sheet, 4, colCount, title);
-
-    let headerRowNum = 5;
-    if (session) {
-      excelMergeHeader(sheet, 5, colCount, session, { font: { italic: true, size: 11 } });
-      headerRowNum = 6;
-    }
+    // Metadata block (non-course-scoped)
+    const headerRowNum = excelWriteMetadataBlock(sheet, {
+      colCount,
+      documentTitle: 'OFFICIAL RESULT SHEET',
+      faculty: state.meta.school,
+      department: state.meta.department,
+      semester: sem,
+      session: session,
+      isCourseScoped: false,
+      exportDate: exportDateStr
+    });
 
     excelHeaderRow(sheet, headerRowNum, headers);
 
@@ -1948,14 +2436,16 @@ async function exportYearExcel(yearKey) {
       const gi = gradeInfo(r.score);
       const excelRow = sheet.getRow(headerRowNum + 1 + idx);
       const scoreVal = r.score === '' ? null : parseFloat(r.score);
-      const values = [idx + 1, r.regNo, r.name, r.code, r.title, r.unit, scoreVal, gi.grade || '', gi.point === null ? '' : gi.point];
+      const values = [idx + 1, r.regNo, r.name];
+      if (includeProgRem) values.push(r.program || '', r.remark || '');
+      values.push(r.code, r.title, r.unit, scoreVal, gi.grade || '', gi.point === null ? '' : gi.point);
       values.forEach((val, colIdx) => { excelRow.getCell(colIdx + 1).value = val; });
       excelStyleDataRow(excelRow, colCount);
       dataRowsForWidth.push(values);
     });
 
-    excelSetWidths(sheet, excelContentWidths(headers, dataRowsForWidth));
-    excelSetRowHeights(sheet, headerRowNum, rows.length, 40, 16);
+    excelSetWidths(sheet, excelApplyMetadataWidths(excelContentWidths(headers, dataRowsForWidth, true), colCount));
+    excelSetRowHeights(sheet, headerRowNum, rows.length, 24, 16);
   });
 
   const logoBuffer = await getLogoBuffer();
@@ -1986,17 +2476,33 @@ async function exportTranscriptExcel() {
     if (sessions[yk]) sessionMap[yk] = sessions[yk];
   });
 
-  const headers = ['Year', 'Semester', 'Reg No', 'Name', 'Session', 'Code', 'Title', 'Unit', 'Score', 'Grade', 'Point'];
+  // Check for program/remark data
+  const includeProgRem = excelShouldIncludeProgramData(lastTranscript.flatRows || []);
+
+  // Build headers (with optional Program/Remark columns)
+  const baseHeaders = ['Year', 'Semester', 'Reg No', 'Name', 'Session', 'Code', 'Title', 'Unit', 'Score', 'Grade', 'Point'];
+  const headers = includeProgRem
+    ? ['Year', 'Semester', 'Reg No', 'Name', 'Program', 'Remark', 'Session', 'Code', 'Title', 'Unit', 'Score', 'Grade', 'Point']
+    : baseHeaders;
   const colCount = headers.length;
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet('Transcript');
 
-  excelMergeHeader(sheet, 1, colCount, META.university, { font: { bold: true, size: 14 } });
-  excelMergeHeader(sheet, 2, colCount, state.meta.school);
-  excelMergeHeader(sheet, 3, colCount, state.meta.department);
-  excelMergeHeader(sheet, 4, colCount, 'STUDENT TRANSCRIPT GENERATOR');
+  // Metadata block (non-course-scoped)
+  const headerRowNum = excelWriteMetadataBlock(sheet, {
+    colCount,
+    documentTitle: 'TRANSCRIPT',
+    faculty: state.meta.school,
+    department: state.meta.department,
+    semester: 'All Semesters',
+    session: '',
+    isCourseScoped: false,
+    exportDate: new Date().toLocaleString('en-GB', {
+      day: '2-digit', month: 'short', year: 'numeric',
+      hour: '2-digit', minute: '2-digit'
+    })
+  });
 
-  const headerRowNum = 5;
   await excelAddLogos(workbook, sheet, colCount);
   excelHeaderRow(sheet, headerRowNum, headers);
 
@@ -2005,14 +2511,16 @@ async function exportTranscriptExcel() {
     const session = sessionMap[r.Year] || '';
     const excelRow = sheet.getRow(headerRowNum + 1 + idx);
     const scoreVal = r.Score === '' ? null : parseFloat(r.Score);
-    const values = [r.Year, r.Semester, r.RegNo, r.Name, session, r.Code, r.Title, r.Unit, scoreVal, r.Grade || '', r.Point === null ? '' : r.Point];
+    const values = [r.Year, r.Semester, r.RegNo, r.Name];
+    if (includeProgRem) values.push(r.Program || '', r.Remark || '');
+    values.push(session, r.Code, r.Title, r.Unit, scoreVal, r.Grade || '', r.Point === null ? '' : r.Point);
     values.forEach((val, colIdx) => { excelRow.getCell(colIdx + 1).value = val; });
     excelStyleDataRow(excelRow, colCount);
     dataRowsForWidth.push(values);
   });
 
-  excelSetWidths(sheet, excelContentWidths(headers, dataRowsForWidth));
-  excelSetRowHeights(sheet, headerRowNum, lastTranscript.flatRows.length, 40, 16);
+  excelSetWidths(sheet, excelApplyMetadataWidths(excelContentWidths(headers, dataRowsForWidth, true), colCount));
+  excelSetRowHeights(sheet, headerRowNum, lastTranscript.flatRows.length, 24, 16);
 
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
