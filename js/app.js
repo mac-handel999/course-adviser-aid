@@ -1701,11 +1701,16 @@ async function saveRowRemote(yearKey, sem, idx) {
   if (!row) return;
      if (!row.regNo && !row.name && !row.code && !row.title && !row.unit && !row.score && !row.test_score && !row.lab_score && !row.exam_score) return;
 
-  // Client-side duplicate check: scoped to the currently-open course only
-  if (state.activeCourse && state.activeCourse.yearKey === yearKey && state.activeCourse.sem === sem && row.course_id) {
-    const courseRows = state.years[yearKey][sem].filter(r => r.course_id === row.course_id);
-    const isDuplicate = courseRows.some((r, i) => i !== idx && (r.regNo || '').trim() === (row.regNo || '').trim() && (r.regNo || '').trim() !== '');
-    const warnEl = document.getElementById(`regNoWarn-${yearKey}-${sem}-${idx}`);
+   // Client-side duplicate check: scoped to the currently-open course only.
+   // Compare by object identity (r !== row) so the row being saved is never
+   // compared against itself.  Using index-based exclusion (i !== idx) would
+   // be wrong here because `i` is the position inside the *filtered* array,
+   // while `idx` is the position in the full semester array — they only
+   // coincide by accident when every row belongs to the same course.
+   if (state.activeCourse && state.activeCourse.yearKey === yearKey && state.activeCourse.sem === sem && row.course_id) {
+     const courseRows = state.years[yearKey][sem].filter(r => r.course_id === row.course_id);
+     const isDuplicate = courseRows.some(r => r !== row && (r.regNo || '').trim() === (row.regNo || '').trim() && (r.regNo || '').trim() !== '');
+     const warnEl = document.getElementById(`regNoWarn-${yearKey}-${sem}-${idx}`);
     if (isDuplicate) {
       if (warnEl) { warnEl.textContent = `Duplicate: reg no ${(row.regNo || '').trim()} already exists in this course.`; warnEl.style.color = 'var(--red)'; }
       return;
