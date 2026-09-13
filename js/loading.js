@@ -30,7 +30,7 @@ function ensureLoadingOverlay() {
     overlay.className = 'loading-overlay';
     overlay.innerHTML =
       '<div class="loading-content">' +
-        '<img src="assets/advyza-logo.svg" class="loading-logo" alt="Advyza">' +
+        '<img src="/assets/advyza-logo.svg" class="loading-logo" alt="Advyza">' +
         '<div class="loading-message">Loading…</div>' +
       '</div>';
     document.body.appendChild(overlay);
