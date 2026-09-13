@@ -123,6 +123,18 @@ body {
   border-color: var(--gold);
 }
 
+.student-name-display {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  padding: 8px 12px;
+  background: var(--line-soft);
+  border-radius: 8px;
+  min-height: 20px;
+  display: flex;
+  align-items: center;
+}
+
 .password-wrap {
   position: relative;
 }

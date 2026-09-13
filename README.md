@@ -5,13 +5,47 @@ FUTO. It lets advisers enter results by year and semester, auto-grade and
 total them, generate transcripts, track carry-over retakes, configure
 per-semester credit load targets, view completion progress alongside GPA,
 and export official documents with the department letterhead to Excel or
-PDF. It installs as a PWA on desktop and mobile, works offline, and syncs
-changes automatically when you reconnect.
+PDF. It supports per-course Test/Lab/Exam component scoring with automatic
+totaling, optional Program and Remark fields per student, and a public
+student portal for self-service result lookup. It installs as a PWA on
+desktop and mobile, works offline, and syncs changes automatically when you
+reconnect.
 
 It is built as a static frontend with an Express API, Supabase for
 authentication and storage, and is deployed on Vercel.
 
-## Architecture
+## Features
+
+### Per-course component scoring
+
+Courses can opt into **Test / Lab / Exam** breakdown instead of a single
+score. When enabled, entering component scores auto-calculates the total
+and the server validates that Test + Lab + Exam equals the saved score.
+The per-course Excel export shows the four columns side by side in
+component mode, or a single Score column otherwise.
+
+### Program and Remark fields
+
+Each result row can carry an optional **Program** (of study) and **Remark**
+(free-text). These appear in the per-course roster, Excel exports, and the
+public student portal lookup.
+
+### Public student portal
+
+Generate a shareable portal URL with a passcode for any class set. Students
+enter their registration number to view their full academic record —
+scores, grades, GPA, program, and remarks — across all semesters.
+
+### Course management
+
+Courses are first-class records with their own metadata (`offering_school`,
+`use_score_components`, `credit_unit`). The API supports full CRUD: create,
+read, update (PATCH), and delete.
+
+### Carry-over tracking
+
+Flag a result as carry-over to mark it for retake. Carry-over rows are
+excluded from GPA calculations and highlighted in the roster badge.
 
 ```
 Browser (index.html / login.html / app.html)
@@ -64,8 +98,11 @@ futo-portal/
 ├── server/
 │   ├── app.js                 Express app (middleware + routes)
 │   ├── routes/results.js      GET/POST/PUT/DELETE /api/results
+│   ├── routes/courses.js      GET/POST/PATCH/DELETE /api/courses
+│   ├── routes/publicPortal.js Student result lookup (no auth)
 │   ├── middleware/requireAuth.js
-│   └── lib/supabaseAdmin.js   Service-role Supabase client (server-only)
+│   ├── lib/supabaseAdmin.js   Service-role Supabase client (server-only)
+│   └── lib/migrate-courses.js Backfill script (results → courses)
 ├── api/index.js               Vercel serverless function wrapping server/app.js
 ├── server.js                  Local dev entry point (`npm run dev`)
 ├── sql/schema.sql             Run once in the Supabase SQL editor
@@ -129,8 +166,29 @@ app already has CORS enabled for this case.
   (debounced ~600ms after you stop typing). Deleting a row calls
   `DELETE /api/results/:id`. On sign-in, the app loads all rows via
   `GET /api/results`.
+- **Courses**: the app fetches the user's course list via
+  `GET /api/courses` (including `offering_school` and `use_score_components`
+  flags). Creating or editing a course hits `POST /api/courses` or
+  `PATCH /api/courses/:id`.
+- **Public portal**: the student lookup endpoint
+  (`POST /api/portal/:slug/lookup`) is unauthenticated — it verifies the
+  passcode and returns the student's full record.
 - **Guest (not signed in, or Supabase not configured)**: results stay in
   memory for that browser tab only.
+
+## API endpoints
+
+| Method   | Route                        | Description                          |
+| -------- | ---------------------------- | ------------------------------------ |
+| GET      | `/api/courses`               | List the adviser's courses           |
+| POST     | `/api/courses`               | Create a course                      |
+| PATCH    | `/api/courses/:id`           | Update course metadata               |
+| DELETE   | `/api/courses/:id`           | Delete a course + its results        |
+| GET      | `/api/results`               | Load all of the adviser's results    |
+| POST     | `/api/results`               | Create a result row                  |
+| PUT      | `/api/results/:id`           | Update a result row                  |
+| DELETE   | `/api/results/:id`           | Delete a result row                  |
+| POST     | `/api/portal/:slug/lookup`   | Public result lookup (no auth)       |
 
 ## Notes / things to revisit
 

@@ -278,6 +278,7 @@ checkForm.addEventListener('submit', async (e) => {
     document.getElementById('checkDepartment').textContent = data.department || '';
     document.getElementById('resultRegNo').textContent = data.regNo || '';
     document.getElementById('resultStudentName').textContent = data.studentName || '';
+    document.getElementById('studentNameDisplay').textContent = data.studentName || '';
 
     const blocks = buildBlocks(data.results);
     populateYearFilter(blocks, data.academicSessions || {});
@@ -323,58 +324,133 @@ function crExcelHeaderRow(sheet, rowNum, headers) {
   });
 }
 function crExcelContentWidths(headers, dataRows) {
-  const widths = headers.map(h => Math.min(Math.max(String(h === undefined || h === null ? '' : h).length + 3, 8), 50));
+  const widths = headers.map(h => {
+    const len = String(h === undefined || h === null ? '' : h).length;
+    const base = Math.min(Math.max(len + 3, 8), 50);
+    return Math.max(base, crExcelGetMinWidth(h));
+  });
   if (dataRows) {
     dataRows.forEach(rowValues => {
       for (let i = 0; i < headers.length; i++) {
         const val = rowValues[i];
         if (val !== undefined && val !== null && val !== '') {
           const len = String(val).length;
-          if (len + 3 > widths[i]) widths[i] = Math.min(len + 3, 50);
+          const computed = Math.min(len + 3, 50);
+          widths[i] = Math.max(widths[i], Math.max(computed, crExcelGetMinWidth(headers[i])));
         }
       }
     });
   }
-  return widths;
+  return widths.map(w => Math.min(w, 60));
+}
+
+const CR_EXCEL_MIN_WIDTHS = {
+  'Student Name': 28, 'Name': 28,
+  'Reg No': 16,
+  'Course Code': 12, 'Code': 12,
+  'Course Title': 22, 'Title': 22,
+  'Program': 22, 'Remark': 22, 'Remarks': 22,
+  'Unit': 12, 'Credit Unit': 12,
+  'Score': 10, 'Test': 10, 'Lab': 10, 'Exam': 10, 'Total': 10,
+  'Grade': 12,
+  'Grade Point': 12, 'Point': 12,
+  'Carry-over': 12, 'C/O': 12,
+  'S/N': 8,
+  'Session': 14, 'Year': 10,
+  'Semester': 18
+};
+const CR_EXCEL_DEFAULT_MIN = 10;
+function crExcelGetMinWidth(header) {
+  return CR_EXCEL_MIN_WIDTHS[header] || CR_EXCEL_DEFAULT_MIN;
+}
+
+function crExcelWriteMetadataBlock(sheet, colCount, documentTitle, faculty, department, semester, session, exportDateStr) {
+  let row = 1;
+  const exportDate = exportDateStr || new Date().toLocaleString('en-GB', {
+    day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit'
+  });
+
+  sheet.mergeCells(crExcelSpan(colCount, row));
+  var cell = sheet.getCell('A' + row);
+  cell.value = 'FEDERAL UNIVERSITY OF TECHNOLOGY, OWERRI';
+  cell.font = { bold: true, size: 14 };
+  cell.alignment = { horizontal: 'center', vertical: 'middle' };
+  sheet.getRow(row).height = 40;
+  row++;
+
+  sheet.mergeCells(crExcelSpan(colCount, row));
+  cell = sheet.getCell('A' + row);
+  cell.value = documentTitle;
+  cell.font = { bold: true, size: 13 };
+  cell.alignment = { horizontal: 'center', vertical: 'middle' };
+  sheet.getRow(row).height = 28;
+  row++;
+
+  var r3 = sheet.getRow(row);
+  r3.getCell(1).value = 'School of Student:';
+  r3.getCell(2).value = faculty || '';
+  r3.getCell(3).value = 'Semester:';
+  r3.getCell(4).value = semester || '';
+  [1, 3].forEach(function (c) { r3.getCell(c).font = { bold: true }; });
+  sheet.getRow(row).height = 22;
+  row++;
+
+  var r4 = sheet.getRow(row);
+  r4.getCell(1).value = 'Department:';
+  r4.getCell(2).value = department || '';
+  r4.getCell(3).value = 'Session:';
+  r4.getCell(4).value = session || '';
+  r4.getCell(5).value = 'Date:';
+  r4.getCell(6).value = exportDate;
+  [1, 3, 5].forEach(function (c) { r4.getCell(c).font = { bold: true }; });
+  sheet.getRow(row).height = 22;
+  row++;
+
+  // Blank spacer row
+  sheet.getRow(row).height = 14;
+  row++;
+
+  return row;
 }
 
 async function exportResultsExcel() {
   if (!lastResultsData) return;
   showLoading('Exporting to Excel…');
   try {
-  const { regNo, faculty, department, results, academicSessions } = lastResultsData;
+  const { regNo, studentName, faculty, department, results, academicSessions } = lastResultsData;
 
-  const headers = ['Code', 'Course Title', 'Unit', 'Score', 'Grade', 'Point', 'Semester', 'Session'];
+  // Build headers (with optional Program/Remark columns)
+  const includeProgRem = results.length > 0 && results.some(r => (r.program || '').trim() !== '' || (r.remark || '').trim() !== '');
+  const headers = ['Code', 'Course Title', 'Unit', 'Score', 'Grade', 'Point'];
+  if (includeProgRem) headers.push('Program', 'Remark');
+  headers.push('Semester', 'Session');
   const colCount = headers.length;
 
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet('Results');
 
-  sheet.mergeCells(crExcelSpan(colCount, 1));
-  sheet.getCell('A1').value = 'FEDERAL UNIVERSITY OF TECHNOLOGY OWERRI';
-  sheet.getCell('A1').font = { bold: true, size: 14 };
-  sheet.getCell('A1').alignment = { horizontal: 'center', vertical: 'middle' };
+  // Metadata block (non-course-scoped)
+  const headerRowNum = crExcelWriteMetadataBlock(sheet, colCount, 'STUDENT RESULTS', faculty, department, 'All Semesters', '', new Date().toLocaleString('en-GB', {
+    day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit'
+  }));
 
-  sheet.mergeCells(crExcelSpan(colCount, 2));
-  sheet.getCell('A2').value = faculty || '';
-  sheet.getCell('A2').font = { bold: true, size: 12 };
-  sheet.getCell('A2').alignment = { horizontal: 'center', vertical: 'middle' };
+  // Watermark note row (bold red, centered)
+  sheet.mergeCells(crExcelSpan(colCount, headerRowNum));
+  var wmCell = sheet.getCell('A' + headerRowNum);
+  wmCell.value = 'UNOFFICIAL / STUDENT COPY — FOR REFERENCE ONLY, NOT AN OFFICIAL TRANSCRIPT';
+  wmCell.font = { bold: true, color: { argb: 'FFFF0000' } };
+  wmCell.alignment = { horizontal: 'center', vertical: 'middle' };
+  sheet.getRow(headerRowNum).height = 20;
+  const dataHeaderRowNum = headerRowNum + 1;
 
-  sheet.mergeCells(crExcelSpan(colCount, 3));
-  sheet.getCell('A3').value = department || '';
-  sheet.getCell('A3').font = { bold: true, size: 12 };
-  sheet.getCell('A3').alignment = { horizontal: 'center', vertical: 'middle' };
-
-  sheet.mergeCells(crExcelSpan(colCount, 4));
-  sheet.getCell('A4').value = 'UNOFFICIAL / STUDENT COPY — FOR REFERENCE ONLY, NOT AN OFFICIAL TRANSCRIPT';
-  sheet.getCell('A4').font = { bold: true, color: { argb: 'FFFF0000' } };
-  sheet.getCell('A4').alignment = { horizontal: 'center', vertical: 'middle' };
-
+  // Fetch and embed logos
   try {
     const response = await fetch('/assets/futo-logo.jpeg');
     const blob = await response.blob();
     const buffer = await blob.arrayBuffer();
-     const imageId = workbook.addImage({ buffer, extension: 'jpg' });
+    const imageId = workbook.addImage({ buffer, extension: 'jpg' });
     const logoSize = 32;
     const rightCol = Math.max(colCount - 0.3, 0.7);
     sheet.addImage(imageId, { tl: { col: 0.5, row: 0.1 }, ext: { width: logoSize, height: logoSize } });
@@ -383,15 +459,14 @@ async function exportResultsExcel() {
     console.error('Failed to embed logo in Excel:', e);
   }
 
-  const headerRowNum = 5;
-  crExcelHeaderRow(sheet, headerRowNum, headers);
+  crExcelHeaderRow(sheet, dataHeaderRowNum, headers);
 
   const blocks = buildBlocks(results);
   const sortedYears = Object.keys(blocks).sort();
 
   const exportYears = currentYearFilter === 'all' ? sortedYears : [currentYearFilter];
   const dataRowsForWidth = [];
-  let excelRowIdx = headerRowNum + 1;
+  let excelRowIdx = dataHeaderRowNum + 1;
 
   exportYears.forEach(yearKey => {
     const session = academicSessions[yearKey] || '';
@@ -402,7 +477,11 @@ async function exportResultsExcel() {
         const gi = gradeInfo(r.score);
         const scoreVal = r.score === '' ? null : parseFloat(r.score);
         const pointVal = gi.point === null ? '' : gi.point;
-        const values = [r.course_code, r.course_title, r.credit_unit, scoreVal, gi.grade || '', pointVal, `${yearKey} - ${sem}`, session];
+        const values = [r.course_code, r.course_title, r.credit_unit, scoreVal, gi.grade || '', pointVal];
+        if (includeProgRem) {
+          values.push(r.program || '', r.remark || '');
+        }
+        values.push(`${yearKey} - ${sem}`, session);
         values.forEach((val, colIdx) => { excelRow.getCell(colIdx + 1).value = val; });
         for (let c = 1; c <= colCount; c++) { excelRow.getCell(c).alignment = { horizontal: 'center', vertical: 'middle' }; }
         dataRowsForWidth.push(values);
@@ -411,10 +490,18 @@ async function exportResultsExcel() {
     });
   });
 
-  excelSetWidths(sheet, crExcelContentWidths(headers, dataRowsForWidth));
+  // Apply generous column widths with metadata label minimums
+  const colWidths = crExcelContentWidths(headers, dataRowsForWidth);
+  // Metadata block uses label:value pairs in first 6 columns; ensure wide enough
+  const metaMins = [18, 20, 15, 16, 15, 26];
+  for (let i = 0; i < Math.min(metaMins.length, colWidths.length); i++) {
+    colWidths[i] = Math.max(colWidths[i], metaMins[i]);
+  }
+  excelSetWidths(sheet, colWidths);
 
-  for (let r = 1; r <= headerRowNum; r++) { sheet.getRow(r).height = 40; }
-  for (let r = headerRowNum + 1; r < excelRowIdx; r++) { sheet.getRow(r).height = 16; }
+  // Row heights
+  sheet.getRow(dataHeaderRowNum).height = 24;
+  for (let r = dataHeaderRowNum + 1; r < excelRowIdx; r++) { sheet.getRow(r).height = 16; }
 
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });

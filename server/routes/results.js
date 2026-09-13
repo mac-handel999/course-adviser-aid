@@ -25,6 +25,10 @@ router.get('/', async (req, res) => {
   }
 });
 
+/* ===================== POST /api/results =====================
+   Create a new result row.
+   Accepts standard fields plus optional test_score, lab_score, exam_score.
+   When component scores are provided, their sum must match `score`. */
 router.post('/', async (req, res) => {
   try {
     const payload = {
@@ -44,6 +48,28 @@ router.post('/', async (req, res) => {
       const score = parseFloat(payload.score);
       if (isNaN(score) || score < 0 || score > 100) {
         return res.status(400).json({ error: 'Score must be a number between 0 and 100.' });
+      }
+    }
+
+    // Validate component scores: each must be >= 0, and their sum must equal `score`
+    const componentFields = ['test_score', 'lab_score', 'exam_score'];
+    let componentSum = 0;
+    let hasAnyComponent = false;
+    componentFields.forEach(f => {
+      if (payload[f] !== undefined && payload[f] !== null && payload[f] !== '') {
+        const n = parseFloat(payload[f]);
+        if (isNaN(n) || n < 0) {
+          return res.status(400).json({ error: `${f.replace('_', ' ')} must be 0 or greater.` });
+        }
+        componentSum += n;
+        hasAnyComponent = true;
+      }
+    });
+
+    if (hasAnyComponent && payload.score !== undefined && payload.score !== null && payload.score !== '') {
+      const scoreNum = parseFloat(payload.score);
+      if (!isNaN(scoreNum) && Math.abs(componentSum - scoreNum) > 0.001) {
+        return res.status(400).json({ error: 'Sum of Test+Lab+Exam must equal the score being saved.' });
       }
     }
 
@@ -101,6 +127,28 @@ router.put('/:id', async (req, res) => {
       const score = parseFloat(payload.score);
       if (isNaN(score) || score < 0 || score > 100) {
         return res.status(400).json({ error: 'Score must be a number between 0 and 100.' });
+      }
+    }
+
+    // Validate component scores: each must be >= 0, and their sum must equal `score`
+    const componentFields = ['test_score', 'lab_score', 'exam_score'];
+    let componentSum = 0;
+    let hasAnyComponent = false;
+    for (const f of componentFields) {
+      if (payload[f] !== undefined && payload[f] !== null && payload[f] !== '') {
+        const n = parseFloat(payload[f]);
+        if (isNaN(n) || n < 0) {
+          return res.status(400).json({ error: `${f.replace('_', ' ')} must be 0 or greater.` });
+        }
+        componentSum += n;
+        hasAnyComponent = true;
+      }
+    }
+
+    if (hasAnyComponent && payload.score !== undefined && payload.score !== null && payload.score !== '') {
+      const scoreNum = parseFloat(payload.score);
+      if (!isNaN(scoreNum) && Math.abs(componentSum - scoreNum) > 0.001) {
+        return res.status(400).json({ error: 'Sum of Test+Lab+Exam must equal the score being saved.' });
       }
     }
 

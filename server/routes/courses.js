@@ -15,7 +15,7 @@ router.get('/', async (req, res) => {
 
     let query = supabaseAdmin
       .from('courses')
-      .select('id, year, semester, course_code, course_title, credit_unit')
+      .select('id, year, semester, course_code, course_title, credit_unit, offering_school, use_score_components')
       .eq('user_id', req.user.id);
 
     if (year) query = query.eq('year', year);
@@ -75,7 +75,7 @@ router.get('/', async (req, res) => {
    Returns 409 if (year, semester, course_code) already exists for this user. */
 router.post('/', async (req, res) => {
   try {
-    const { year, semester, course_code, course_title, credit_unit } = req.body;
+    const { year, semester, course_code, course_title, credit_unit, offering_school, use_score_components } = req.body;
 
     if (!year || !semester || !course_code) {
       return res.status(400).json({ error: 'year, semester, and course_code are required.' });
@@ -85,6 +85,9 @@ router.post('/', async (req, res) => {
     const normalizedTitle = String(course_title || '').trim();
     const normalizedUnit = credit_unit !== undefined && credit_unit !== null && String(credit_unit).trim() !== ''
       ? parseFloat(credit_unit)
+      : null;
+    const normalizedOfferingSchool = offering_school !== undefined && offering_school !== null && String(offering_school).trim() !== ''
+      ? String(offering_school).trim()
       : null;
 
     if (normalizedUnit !== null && (isNaN(normalizedUnit) || normalizedUnit <= 0)) {
@@ -117,9 +120,11 @@ router.post('/', async (req, res) => {
         semester: String(semester).trim(),
         course_code: normalizedCode,
         course_title: normalizedTitle || null,
-        credit_unit: normalizedUnit
+        credit_unit: normalizedUnit,
+        offering_school: normalizedOfferingSchool,
+        use_score_components: !!use_score_components
       })
-      .select('id, year, semester, course_code, course_title, credit_unit')
+      .select('id, year, semester, course_code, course_title, credit_unit, offering_school, use_score_components')
       .single();
 
     if (error) {
@@ -182,11 +187,73 @@ router.delete('/:id', async (req, res) => {
       return res.status(500).json({ error: 'Failed to delete course' });
     }
 
-     res.json({ success: true, deletedResults: deletedResults || 0 });
-   } catch (err) {
-     console.error('Courses DELETE server error:', err.message);
-     res.status(500).json({ error: 'Server error' });
-   }
+    res.json({ success: true, deletedResults: deletedResults || 0 });
+  } catch (err) {
+    console.error('Courses DELETE server error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+/* ===================== PATCH /api/courses/:id =====================
+   Update editable course metadata (course_title, credit_unit, offering_school,
+   use_score_components).  Ownership-checked. */
+router.patch('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { course_title, credit_unit, offering_school, use_score_components } = req.body;
+
+    const { data: course, error: checkError } = await supabaseAdmin
+      .from('courses')
+      .select('user_id')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (checkError) {
+      console.error('Courses PATCH ownership-check error:', checkError.message);
+      return res.status(500).json({ error: 'Failed to verify course ownership' });
+    }
+    if (!course || course.user_id !== req.user.id) {
+      return res.status(404).json({ error: 'Course not found' });
+    }
+
+    const updates = {};
+    if (course_title !== undefined) updates.course_title = String(course_title || '').trim() || null;
+    if (credit_unit !== undefined) {
+      const u = credit_unit !== null && String(credit_unit).trim() !== '' ? parseFloat(credit_unit) : null;
+      if (u !== null && (isNaN(u) || u <= 0)) {
+        return res.status(400).json({ error: 'credit_unit must be a positive number.' });
+      }
+      updates.credit_unit = u;
+    }
+    if (offering_school !== undefined) {
+      updates.offering_school = String(offering_school || '').trim() !== '' ? String(offering_school).trim() : null;
+    }
+    if (use_score_components !== undefined) {
+      updates.use_score_components = !!use_score_components;
+    }
+
+    if (!Object.keys(updates).length) {
+      return res.status(400).json({ error: 'No updatable fields provided.' });
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from('courses')
+      .update(updates)
+      .eq('id', id)
+      .eq('user_id', req.user.id)
+      .select('id, year, semester, course_code, course_title, credit_unit, offering_school, use_score_components')
+      .single();
+
+    if (error) {
+      console.error('Courses PATCH update error:', error.message);
+      return res.status(500).json({ error: 'Failed to update course' });
+    }
+
+    res.json(data);
+  } catch (err) {
+    console.error('Courses PATCH server error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
 module.exports = router;

@@ -13,6 +13,9 @@ create table if not exists public.results (
   course_title text,
   credit_unit numeric,
   score numeric,
+  test_score numeric,
+  lab_score numeric,
+  exam_score numeric,
   created_by uuid references auth.users(id),
   created_at timestamptz default now(),
   updated_at timestamptz default now()
@@ -178,11 +181,22 @@ create trigger credit_load_settings_set_updated_at
 -- Carry-over retake flag for results.
 alter table public.results add column if not exists is_carryover boolean default false;
 
+-- Optional per-student, per-course fields: program of study and free-text remark.
+alter table public.results add column if not exists program text;
+alter table public.results add column if not exists remark text;
+
 -- Score range constraint: 0-100 or null.
 alter table public.results drop constraint if exists results_score_range;
 alter table public.results
   add constraint results_score_range
   check (score is null or (score >= 0 and score <= 100));
+
+-- Component scores for optional Test/Lab/Exam breakdown.
+-- score remains the canonical total; these are optional inputs that
+-- feed into it when use_score_components is enabled on the course.
+alter table public.results add column if not exists test_score numeric;
+alter table public.results add column if not exists lab_score numeric;
+alter table public.results add column if not exists exam_score numeric;
 
 -- Per-year academic session labels (e.g. "2025/2026").
 create table if not exists public.academic_sessions (
@@ -246,6 +260,8 @@ create table if not exists public.courses (
   course_code text not null,
   course_title text,
   credit_unit numeric,
+  offering_school text,
+  use_score_components boolean not null default false,
   created_at timestamptz default now(),
   unique (user_id, year, semester, course_code)
 );
@@ -281,6 +297,12 @@ create policy "Authenticated users can delete own courses"
   on public.courses for delete
   to authenticated
   using (user_id = auth.uid());
+
+-- Add offering_school and use_score_components columns to existing courses tables.
+-- These are already in the CREATE TABLE above for new databases; the ALTER
+-- statements below handle databases created before these columns were added.
+alter table public.courses add column if not exists offering_school text;
+alter table public.courses add column if not exists use_score_components boolean not null default false;
 
 -- Unique constraint on (course_id, reg_no) prevents duplicate student
 -- entries within the same course.  Added after the migration scripts
