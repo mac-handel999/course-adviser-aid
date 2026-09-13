@@ -248,6 +248,7 @@ checkForm.addEventListener('submit', async (e) => {
   }
 
   regNoInput.value = regNo;
+  showLoading('Checking results…');
   try {
     const res = await fetch(`/api/public/portal/${encodeURIComponent(portalSlug)}/lookup`, {
       method: 'POST',
@@ -294,6 +295,8 @@ checkForm.addEventListener('submit', async (e) => {
   } catch (err) {
     checkError.textContent = 'No results found for that passcode and registration number.';
     checkResult.style.display = 'none';
+  } finally {
+    hideLoading();
   }
 });
 
@@ -337,6 +340,8 @@ function crExcelContentWidths(headers, dataRows) {
 
 async function exportResultsExcel() {
   if (!lastResultsData) return;
+  showLoading('Exporting to Excel…');
+  try {
   const { regNo, faculty, department, results, academicSessions } = lastResultsData;
 
   const headers = ['Code', 'Course Title', 'Unit', 'Score', 'Grade', 'Point', 'Semester', 'Session'];
@@ -369,9 +374,11 @@ async function exportResultsExcel() {
     const response = await fetch('/assets/futo-logo.jpeg');
     const blob = await response.blob();
     const buffer = await blob.arrayBuffer();
-    const imageId = workbook.addImage({ buffer, extension: 'jpg' });
-    sheet.addImage(imageId, { tl: { col: 0.5, row: 0.1 }, ext: { width: 48, height: 48 } });
-    sheet.addImage(imageId, { tl: { col: colCount - 1.5, row: 0.1 }, ext: { width: 48, height: 48 } });
+     const imageId = workbook.addImage({ buffer, extension: 'jpg' });
+    const logoSize = 32;
+    const rightCol = Math.max(colCount - 0.3, 0.7);
+    sheet.addImage(imageId, { tl: { col: 0.5, row: 0.1 }, ext: { width: logoSize, height: logoSize } });
+    sheet.addImage(imageId, { tl: { col: rightCol, row: 0.1 }, ext: { width: logoSize, height: logoSize } });
   } catch (e) {
     console.error('Failed to embed logo in Excel:', e);
   }
@@ -406,7 +413,7 @@ async function exportResultsExcel() {
 
   excelSetWidths(sheet, crExcelContentWidths(headers, dataRowsForWidth));
 
-  for (let r = 1; r <= headerRowNum; r++) { sheet.getRow(r).height = 18; }
+  for (let r = 1; r <= headerRowNum; r++) { sheet.getRow(r).height = 40; }
   for (let r = headerRowNum + 1; r < excelRowIdx; r++) { sheet.getRow(r).height = 16; }
 
   const buffer = await workbook.xlsx.writeBuffer();
@@ -422,6 +429,9 @@ async function exportResultsExcel() {
 
   a.click();
   URL.revokeObjectURL(url);
+  } finally {
+    hideLoading();
+  }
 }
 
 function excelSetWidths(sheet, widths) {

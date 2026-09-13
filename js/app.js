@@ -886,9 +886,10 @@ function excelAddLogosToSheet(workbook, sheet, colCount, logoBuffer) {
   if (!logoBuffer) return;
   try {
     const imageId = workbook.addImage({ buffer: logoBuffer, extension: 'jpg' });
-    const rightCol = Math.max(colCount - 1.5, 3.5);
-    sheet.addImage(imageId, { tl: { col: 0.5, row: 0.1 }, ext: { width: 48, height: 48 } });
-    sheet.addImage(imageId, { tl: { col: rightCol, row: 0.1 }, ext: { width: 48, height: 48 } });
+    const logoSize = 32;
+    const rightCol = Math.max(colCount - 0.3, 0.7);
+    sheet.addImage(imageId, { tl: { col: 0.5, row: 0.1 }, ext: { width: logoSize, height: logoSize } });
+    sheet.addImage(imageId, { tl: { col: rightCol, row: 0.1 }, ext: { width: logoSize, height: logoSize } });
   } catch (e) {
     console.error('Failed to embed logo in Excel:', e);
   }
@@ -915,6 +916,8 @@ async function exportCourseExcel(courseId, courseCode, yearKey, sem) {
     return;
   }
 
+  showLoading('Exporting to Excel…');
+  try {
   const safeCode = courseCode.replace(/[:\\\/\?\*\[\]]/g, '');
   const safeYear = yearKey.replace(/[:\\\/\?\*\[\]]/g, '');
   const safeSem = sem.replace(/[:\\\/\?\*\[\]]/g, '');
@@ -969,7 +972,7 @@ async function exportCourseExcel(courseId, courseCode, yearKey, sem) {
   excelSetWidths(sheet, colWidths);
 
   // Row heights
-  excelSetRowHeights(sheet, headerRowNum, sortedRows.length, 18, 16);
+  excelSetRowHeights(sheet, headerRowNum, sortedRows.length, 40, 16);
 
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -979,6 +982,9 @@ async function exportCourseExcel(courseId, courseCode, yearKey, sem) {
   a.download = `${safeCode} - ${safeYear} - ${safeSem}.xlsx`;
   a.click();
   URL.revokeObjectURL(url);
+  } finally {
+    hideLoading();
+  }
 }
 function getCourseRows(courseId) {
   const courses = state.courses;
@@ -1401,9 +1407,14 @@ async function initApp() {
     if (session) {
       currentUser = session.user;
       accessToken = session.access_token;
-      await loadFromApi();
-      await loadCourses();
-      await loadSettings();
+      showLoading('Loading your results…');
+      try {
+        await loadFromApi();
+        await loadCourses();
+        await loadSettings();
+      } finally {
+        hideLoading();
+      }
     } else {
       loadFromLocalStorage();
     }
@@ -1757,6 +1768,9 @@ async function exportCumulativeExcel() {
   const rows = state.years[yearKey][sem] || [];
   const sorted = rows.slice().sort((a, b) => (a.name || '').trim().toLowerCase() < (b.name || '').trim().toLowerCase() ? -1 : 1);
 
+  showLoading('Exporting to Excel…');
+  try {
+
   // Source course codes from the courses table for stable column order
   const courseList = state.courses[yearKey]?.[sem] || [];
   let codes;
@@ -1829,7 +1843,7 @@ async function exportCumulativeExcel() {
   });
 
   excelSetWidths(sheet, excelContentWidths(headers, dataRowsForWidth));
-  excelSetRowHeights(sheet, headerRowNum, students.length, 18, 16);
+  excelSetRowHeights(sheet, headerRowNum, students.length, 40, 16);
 
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -1839,6 +1853,9 @@ async function exportCumulativeExcel() {
   a.download = `Cumulative - ${yearKey} - ${sem}.xlsx`;
   a.click();
   URL.revokeObjectURL(url);
+  } finally {
+    hideLoading();
+  }
 }
 
 /* ===================== SEMESTER / YEAR / TRANSCRIPT EXCEL EXPORT ===================== */
@@ -1847,6 +1864,9 @@ async function exportSemesterExcel(yearKey, sem) {
   const rows = state.years[yearKey][sem];
   const session = state.academicSessions[yearKey] || '';
   const title = `${yearKey} — ${sem}`
+
+  showLoading('Exporting to Excel…');
+  try {
 
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet(sem.replace(/[:\\\/\?\*\[\]]/g, '') || 'Sheet1');
@@ -1880,7 +1900,7 @@ async function exportSemesterExcel(yearKey, sem) {
   });
 
   excelSetWidths(sheet, excelContentWidths(headers, dataRowsForWidth));
-  excelSetRowHeights(sheet, headerRowNum, rows.length, 18, 16);
+  excelSetRowHeights(sheet, headerRowNum, rows.length, 40, 16);
 
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -1890,6 +1910,9 @@ async function exportSemesterExcel(yearKey, sem) {
   a.download = `${yearKey} - ${sem}.xlsx`;
   a.click();
   URL.revokeObjectURL(url);
+  } finally {
+    hideLoading();
+  }
 }
 
 async function exportYearExcel(yearKey) {
@@ -1898,6 +1921,8 @@ async function exportYearExcel(yearKey) {
   const headers = ['S/N', 'Reg No', 'Student Name', 'Course Code', 'Course Title', 'Credit Unit', 'Score', 'Grade', 'Grade Point'];
   const colCount = headers.length;
 
+  showLoading('Exporting to Excel…');
+  try {
   SEMESTERS.forEach(sem => {
     const rows = state.years[yearKey][sem];
     const title = `${yearKey} — ${sem}`
@@ -1930,7 +1955,7 @@ async function exportYearExcel(yearKey) {
     });
 
     excelSetWidths(sheet, excelContentWidths(headers, dataRowsForWidth));
-    excelSetRowHeights(sheet, headerRowNum, rows.length, 18, 16);
+    excelSetRowHeights(sheet, headerRowNum, rows.length, 40, 16);
   });
 
   const logoBuffer = await getLogoBuffer();
@@ -1946,10 +1971,15 @@ async function exportYearExcel(yearKey) {
   a.download = `${yearKey} - All Semesters.xlsx`;
   a.click();
   URL.revokeObjectURL(url);
+  } finally {
+    hideLoading();
+  }
 }
 
 async function exportTranscriptExcel() {
   if (!lastTranscript) return;
+  showLoading('Exporting to Excel…');
+  try {
   const sessionMap = {};
   const sessions = state.academicSessions || {};
   Object.keys(sessions).forEach(yk => {
@@ -1982,7 +2012,7 @@ async function exportTranscriptExcel() {
   });
 
   excelSetWidths(sheet, excelContentWidths(headers, dataRowsForWidth));
-  excelSetRowHeights(sheet, headerRowNum, lastTranscript.flatRows.length, 18, 16);
+  excelSetRowHeights(sheet, headerRowNum, lastTranscript.flatRows.length, 40, 16);
 
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -1992,6 +2022,9 @@ async function exportTranscriptExcel() {
   a.download = `Transcript - ${lastTranscript.regNo}.xlsx`;
   a.click();
   URL.revokeObjectURL(url);
+  } finally {
+    hideLoading();
+  }
 }
 
 function downloadBlob(content, filename, type) {
@@ -2206,6 +2239,7 @@ async function saveSettings() {
   statusEl.textContent = 'Saving…';
   statusEl.style.color = 'var(--muted)';
 
+  showLoading('Saving settings…');
   try {
     const data = await apiFetch('/api/settings', {
       method: 'PUT',
@@ -2221,6 +2255,8 @@ async function saveSettings() {
   } catch (err) {
     statusEl.textContent = err.message || 'Failed to save settings.';
     statusEl.style.color = 'var(--red)';
+  } finally {
+    hideLoading();
   }
 }
 
@@ -2243,6 +2279,7 @@ async function savePasscode() {
   statusEl.textContent = 'Updating…';
   statusEl.style.color = 'var(--muted)';
 
+  showLoading('Updating passcode…');
   try {
     await apiFetch('/api/settings/passcode', {
       method: 'PUT',
@@ -2256,6 +2293,8 @@ async function savePasscode() {
   } catch (err) {
     statusEl.textContent = err.message || 'Failed to update passcode.';
     statusEl.style.color = 'var(--red)';
+  } finally {
+    hideLoading();
   }
 }
 

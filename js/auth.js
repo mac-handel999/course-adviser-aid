@@ -52,15 +52,20 @@ document.addEventListener('DOMContentLoaded', () => {
     submitBtn.disabled = true;
     submitBtn.textContent = mode === 'signin' ? 'Signing in…' : 'Creating account…';
 
+    showLoading(mode === 'signin' ? 'Signing in…' : 'Creating account…');
     let data, error;
-    if (mode === 'signin') {
-      const result = await supabaseClient.auth.signInWithPassword({ email, password });
-      data = result.data;
-      error = result.error;
-    } else {
-      const result = await supabaseClient.auth.signUp({ email, password, options: { data: { full_name: fullName } } });
-      data = result.data;
-      error = result.error;
+    try {
+      if (mode === 'signin') {
+        const result = await supabaseClient.auth.signInWithPassword({ email, password });
+        data = result.data;
+        error = result.error;
+      } else {
+        const result = await supabaseClient.auth.signUp({ email, password, options: { data: { full_name: fullName } } });
+        data = result.data;
+        error = result.error;
+      }
+    } finally {
+      hideLoading();
     }
 
     submitBtn.disabled = false;

@@ -90,3 +90,36 @@ a.btn.gold {
   opacity: .5;
   cursor: not-allowed;
 }
+
+/* ---------- loading overlay ---------- */
+.loading-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(252, 252, 249, 0.92);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  backdrop-filter: blur(2px);
+}
+
+.loading-content {
+  text-align: center;
+}
+
+.loading-logo {
+  width: 48px;
+  height: 48px;
+  margin-bottom: 14px;
+  animation: loading-pulse 1.5s ease-in-out infinite;
+}
+
+.loading-message {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+@keyframes loading-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.05); }
+}
