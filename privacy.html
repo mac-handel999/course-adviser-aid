@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy — Advyza</title>
+  <link rel="icon" type="image/png" href="assets/advyza-favicon.png">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Source+Serif_4:opsz,wght@8..60,400;8..60,600;8..60,700&family=Inter:wght@400;500;600;700&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/landing.css">
+</head>
+
+<body>
+  <header class="site-header">
+    <div class="wrap">
+      <a class="brand-mark" href="index.html">
+        <img src="assets/advyza-logo.svg" alt="" class="crest-img">
+        <span class="brand-text"><span>Advyza</span><small>Results &amp; transcripts for course advisers</small></span>
+      </a>
+      <nav class="main-nav" id="mainNav">
+        <a href="index.html">Home</a>
+        <a href="docs.html">Documentation</a>
+        <a href="terms.html">Terms</a>
+        <a href="privacy.html" class="active">Privacy</a>
+      </nav>
+      <div class="nav-actions">
+        <button class="mobile-toggle" id="mobileToggle" aria-label="Toggle menu">&#9776;</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="doc-wrap">
+    <div class="doc-content">
+      <h1>Privacy &amp; Data Policy</h1>
+
+      <p class="legal-note"><strong>Important:</strong> This is a starting template and has not been reviewed by a
+        lawyer. Review with qualified legal counsel before relying on it. Because this app handles student academic
+        records, you should specifically consider compliance with Nigeria’s Data Protection Act (NDPA 2019) and
+        any other applicable data-protection regulations.</p>
+
+      <h2>How data is collected</h2>
+      <ul>
+        <li><strong>Adviser accounts:</strong> Email and password are created via Supabase Auth. You may optionally
+          store your full name in your profile.</li>
+        <li><strong>Student results:</strong> Names, registration numbers, course codes, scores, and grades are
+          entered <em>by the adviser</em>, not submitted by students directly. You are responsible for ensuring you
+          have appropriate authority to record each student’s data.</li>
+        <li><strong>Passcodes:</strong> Student passcodes are bcrypt-hashed and never stored in plaintext. The
+          plaintext is permanently unrecoverable.</li>
+        <li><strong>Department settings:</strong> Faculty, department name, portal slug, class set, credit load
+          targets, and academic session labels are stored per adviser account.</li>
+      </ul>
+
+      <h2>How data is stored</h2>
+      <p>All adviser accounts and result data are hosted on <strong>Supabase</strong> (PostgreSQL database) with
+        per-user Row-Level Security. The application backend runs on <strong>Vercel</strong> as serverless
+        functions. Data is never sold, and is only accessible to the account that created it (or an authorised
+        department administrator acting on that account).</p>
+
+      <h2>Data processing and retention</h2>
+      <p>Data is retained for as long as your adviser account remains active. Deleting your account permanently
+        removes all associated results, courses, and settings. We do not use your data for machine learning,
+        advertising, or profiling of any kind.</p>
+
+      <h2>Cookies and tracking</h2>
+      <p>We use essential cookies only, to keep you signed in during your browser session and to save your theme
+        preference. No analytics, advertising, or third-party tracking scripts are loaded.</p>
+
+      <h2>Your responsibilities</h2>
+      <p>As the data controller for the student records you enter, you are responsible for:</p>
+      <ul>
+        <li>Ensuring you have the authority to record each student’s academic results;</li>
+        <li>Using a strong, unique passcode for the student portal and sharing it only with authorised
+          recipients;</li>
+        <li>Informing students that their results are available through the portal and of the security measures in
+          place;</li>
+        <li>Complying with your institution’s own data-handling and retention policies, as well as applicable
+          Nigerian data-protection laws.</li>
+      </ul>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <a class="brand-mark" href="index.html">
+        <img src="assets/advyza-logo.svg" alt="" class="crest-img">
+        <span class="brand-text"><span>Advyza</span><small>Results &amp; transcripts for course advisers</small></span>
+      </a>
+      <div class="cols">
+        <div>
+          <h5>PORTAL</h5>
+          <a href="index.html">Home</a>
+          <a href="docs.html">Documentation</a>
+          <a href="terms.html">Terms</a>
+          <a href="privacy.html">Privacy</a>
+        </div>
+        <div>
+          <h5>LEGAL</h5>
+          <a href="terms.html">Terms &amp; Conditions</a>
+          <a href="privacy.html">Data / Privacy</a>
+        </div>
+      </div>
+    </div>
+    <div class="bottom wrap">
+      <span id="year"></span> Advyza. Internal results tool.
+    </div>
+  </footer>
+
+  <script src="js/landing.js"></script>
+</body>
+
+</html>

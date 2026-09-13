@@ -47,7 +47,7 @@ router.post('/portal/:slug/lookup', async (req, res) => {
 
     const { data: results, error: resultsError } = await supabaseAdmin
       .from('results')
-      .select('year, semester, course_code, course_title, credit_unit, score, is_carryover')
+      .select('year, semester, course_code, course_title, credit_unit, score, is_carryover, student_name, reg_no')
       .eq('created_by', settings.user_id)
       .ilike('reg_no', trimmedRegNo)
       .order('year', { ascending: true })
@@ -96,6 +96,7 @@ router.post('/portal/:slug/lookup', async (req, res) => {
       faculty: settings.faculty,
       department: settings.department,
       regNo: trimmedRegNo,
+      studentName: results[0]?.student_name || '',
       results,
       creditLoad: creditLoadMap,
       academicSessions: academicSessionsMap

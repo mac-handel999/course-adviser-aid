@@ -15,10 +15,11 @@ const YEAR_KEYS = Array.from({ length: 10 }, (_, i) => 'Year ' + (i + 1));
 const SEMESTERS = ['Harmattan Semester', 'Rain Semester'];
 const emptyRow = () => ({ id: null, regNo: '', name: '', code: '', title: '', unit: '', score: '', isCarryover: false });
 
-let state = { years: {}, currentView: 'Year 1', meta: { school: 'SCHOOL OF HEALTH TECHNOLOGY (SOHT)', department: 'DEPARTMENT OF PUBLIC HEALTH' }, creditLoad: {}, classSet: null, academicSessions: {} };
+let state = { years: {}, courses: {}, currentView: 'Year 1', activeCourse: null, meta: { school: 'SCHOOL OF HEALTH TECHNOLOGY (SOHT)', department: 'DEPARTMENT OF PUBLIC HEALTH' }, creditLoad: {}, classSet: null, academicSessions: {} };
 YEAR_KEYS.forEach(y => {
   state.years[y] = {};
-  SEMESTERS.forEach(s => { state.years[y][s] = [emptyRow()]; });
+  state.courses[y] = {};
+  SEMESTERS.forEach(s => { state.years[y][s] = [emptyRow()]; state.courses[y][s] = []; });
 });
 
 let currentUser = null;
@@ -27,7 +28,10 @@ const saveTimers = {};
 let saveIndicatorTimer = null;
 
 /* ===================== LETTERHEAD ===================== */
-function renderLetterhead(title) {
+function renderLetterhead(title, session) {
+  const sessionHtml = session
+    ? `<p class="letterhead-session">${escHtml(session)}</p>`
+    : '';
   return `
     <div class="letterhead">
       <img src="assets/futo-logo.jpeg" class="letterhead-logo" alt="FUTO Logo">
@@ -36,6 +40,7 @@ function renderLetterhead(title) {
         <h3>${escHtml(state.meta.school)}</h3>
         <p>${escHtml(state.meta.department)}</p>
         <div class="title-row">${escHtml(title)}</div>
+        ${sessionHtml}
       </div>
       <img src="assets/futo-logo.jpeg" class="letterhead-logo" alt="FUTO Logo">
     </div>
@@ -128,6 +133,15 @@ function loadFromLocalStorage() {
     const loaded = JSON.parse(raw);
     if (loaded && loaded.years) {
       state = loaded;
+      // Ensure courses structure exists (for backward compatibility with old saves)
+      if (!state.courses) {
+        state.courses = {};
+        YEAR_KEYS.forEach(y => {
+          state.courses[y] = {};
+          SEMESTERS.forEach(s => { state.courses[y][s] = []; });
+        });
+      }
+      if (!state.activeCourse) state.activeCourse = null;
       return true;
     }
   } catch (e) {
@@ -226,10 +240,17 @@ function parseImportFile(file) {
   });
 }
 
-function validateImportRows(rawRows, yearKey, sem) {
+function validateImportRows(rawRows, yearKey, sem, activeCourse, existingRows) {
   const errors = [];
   const valid = [];
   const seenPairs = new Set();
+  const existingRegs = new Set();
+
+  if (activeCourse && existingRows) {
+    existingRows.forEach(r => {
+      if ((r.regNo || '').trim()) existingRegs.add((r.regNo || '').trim());
+    });
+  }
 
   rawRows.forEach((raw, idx) => {
     const row = mapRowFields(raw);
@@ -242,13 +263,32 @@ function validateImportRows(rawRows, yearKey, sem) {
 
     if (!reg) rowErrors.push('Reg No is required.');
     else if (!/^\d{11}$/.test(reg)) rowErrors.push('Reg No must be exactly 11 digits.');
-    if (!code) rowErrors.push('Course Code is required.');
-    if (unitRaw === '' || unitRaw === null || unitRaw === undefined) {
-      rowErrors.push('Credit Unit is required.');
+
+    if (activeCourse) {
+      // Importing into a specific course: only Reg No + Score are required.
+      // Course Code/Title/Unit come from the course context, not the file.
+      // If the file includes Course Code, validate it matches the open course.
+      if (code) {
+        const openCourseCode = (activeCourse.course_code || '').trim().toUpperCase();
+        if (openCourseCode && code.toUpperCase() !== openCourseCode) {
+          rowErrors.push(`Course code mismatch: file has "${code}" but this course is "${openCourseCode}".`);
+        }
+      }
+      // Check against existing rows in the open course's roster
+      if (reg && existingRegs.has(reg)) {
+        rowErrors.push(`Duplicate: reg no ${reg} already exists in this course — will be skipped.`);
+      }
     } else {
-      const unitNum = parseFloat(unitRaw);
-      if (isNaN(unitNum) || unitNum <= 0) rowErrors.push('Credit Unit must be a number greater than 0.');
+      // Flat-table import (no active course): all columns required
+      if (!code) rowErrors.push('Course Code is required.');
+      if (unitRaw === '' || unitRaw === null || unitRaw === undefined) {
+        rowErrors.push('Credit Unit is required.');
+      } else {
+        const unitNum = parseFloat(unitRaw);
+        if (isNaN(unitNum) || unitNum <= 0) rowErrors.push('Credit Unit must be a number greater than 0.');
+      }
     }
+
     if (scoreRaw === '' || scoreRaw === null || scoreRaw === undefined) {
       rowErrors.push('Score is required.');
     } else {
@@ -256,7 +296,7 @@ function validateImportRows(rawRows, yearKey, sem) {
       if (isNaN(scoreNum) || scoreNum < 0 || scoreNum > 100) rowErrors.push('Score must be a number between 0 and 100.');
     }
 
-    const pairKey = `${reg}|||${code}`;
+    const pairKey = `${reg}|||${code || '(none)'}`;
     if (!rowErrors.length) {
       if (seenPairs.has(pairKey)) rowErrors.push('Duplicate Reg No + Course Code within the uploaded file.');
       seenPairs.add(pairKey);
@@ -279,12 +319,15 @@ function validateImportRows(rawRows, yearKey, sem) {
   return { valid, errors, total: rawRows.length };
 }
 
-function renderImportPreview(parsed, yearKey, sem) {
+function renderImportPreview(parsed, yearKey, sem, activeCourse) {
   const overlay = document.createElement('div');
   overlay.className = 'import-overlay';
+  const courseTag = activeCourse
+    ? ` — into course <b>${escHtml(activeCourse.course_code)}</b>`
+    : '';
   overlay.innerHTML = `
     <div class="import-modal">
-      <h3>Import preview — ${yearKey} · ${sem}</h3>
+      <h3>Import preview — ${yearKey} · ${sem}${courseTag}</h3>
       <div class="import-summary">
         <div><span class="num">${parsed.total}</span><span class="lbl">Total rows found</span></div>
         <div><span class="num ok">${parsed.valid.length}</span><span class="lbl">Valid rows</span></div>
@@ -331,6 +374,19 @@ async function commitImport(rows, yearKey, sem) {
   let inserted = 0;
   rows.forEach(r => {
     const newRow = { ...emptyRow(), ...r };
+
+    // If importing from within a course roster, link rows to the active course
+    if (state.activeCourse && state.activeCourse.yearKey === yearKey && state.activeCourse.sem === sem) {
+      const courses = state.courses[yearKey]?.[sem] || [];
+      const course = courses.find(c => c.id === state.activeCourse.courseId);
+      if (course) {
+        newRow.code = course.course_code || '';
+        newRow.title = course.course_title || '';
+        newRow.unit = course.credit_unit ?? '';
+        newRow.course_id = course.id;
+      }
+    }
+
     const existingIndex = state.years[yearKey][sem].findIndex(row =>
       (row.regNo || '').trim() === (newRow.regNo || '').trim() &&
       (row.code || '').trim() === (newRow.code || '').trim()
@@ -369,19 +425,29 @@ async function handleImportFile(input, yearKey, sem) {
     const mapped = rawRows.map(r => mapRowFields(r));
     const hasRequired = mapped.some(r => r.regNo || r.code || r.unit || r.score);
     if (!hasRequired) {
-      alert('The uploaded file does not contain recognizable result columns. Please ensure headers like Reg No, Course Code, Credit Unit, and Score are present.');
+      alert('The uploaded file does not contain recognizable result columns. Please ensure headers like Reg No, Student Name, Course Code, etc. are present.');
       input.value = '';
       return;
     }
 
-    const parsed = validateImportRows(mapped, yearKey, sem);
+    // Determine if we're importing from within an active course roster
+    const activeCourse = (state.activeCourse && state.activeCourse.yearKey === yearKey && state.activeCourse.sem === sem)
+      ? state.courses[yearKey]?.[sem]?.find(c => c.id === state.activeCourse.courseId)
+      : null;
+
+    // Get existing rows in the open course's roster for duplicate checking
+    const existingRows = activeCourse
+      ? state.years[yearKey][sem].filter(r => r.course_id === activeCourse.id)
+      : [];
+
+    const parsed = validateImportRows(mapped, yearKey, sem, activeCourse, existingRows);
     if (!parsed.valid.length && parsed.errors.length) {
       alert(`No valid rows found. ${parsed.errors.length} row(s) have errors.`);
       input.value = '';
       return;
     }
 
-    renderImportPreview(parsed, yearKey, sem);
+    renderImportPreview(parsed, yearKey, sem, activeCourse);
   } catch (err) {
     alert(err.message || 'Failed to import file.');
   } finally {
@@ -393,7 +459,7 @@ async function handleImportFile(input, yearKey, sem) {
 function renderYearView(yearKey) {
   const session = state.academicSessions[yearKey] || '';
   const title = session ? `${yearKey.toUpperCase()} — ${session.toUpperCase()} SESSION` : `${yearKey.toUpperCase()} — RESULT COMPUTATION`;
-  let html = renderLetterhead(title);
+  let html = renderLetterhead(title, session);
   html += `<div class="year-actions">
     <button class="btn gold" onclick="exportYearExcel('${yearKey}')">Export ${yearKey} to Excel</button>
   </div>`;
@@ -402,8 +468,11 @@ function renderYearView(yearKey) {
 }
 
 function renderSemesterBlock(yearKey, sem) {
-  const rows = state.years[yearKey][sem];
   const semSlug = sem.replace(/\s+/g, '-');
+  const rows = state.years[yearKey][sem];
+  const courses = state.courses[yearKey]?.[sem] || [];
+
+  // Sort rows alphabetically by student_name for consistent display
   rows.sort((a, b) => {
     const nameA = (a.name || '').trim().toLowerCase();
     const nameB = (b.name || '').trim().toLowerCase();
@@ -411,44 +480,38 @@ function renderSemesterBlock(yearKey, sem) {
     if (nameA > nameB) return 1;
     return 0;
   });
+
   const summary = computeSummary(rows, yearKey, sem);
 
-  let rowsHtml = '';
-  const distinctCodes = Array.from(new Set(rows.map(r => (r.code || '').trim()).filter(Boolean))).sort();
-  if (rows.length === 0) {
-    rowsHtml = `<tr class="empty-row"><td colspan="11">No students added yet — click "Add student row" to begin.</td></tr>`;
-  } else {
-    rows.forEach((r, i) => {
-      const gi = gradeInfo(r.score);
-      const carryBadge = r.isCarryover ? ' <span class="carry-badge">C/O</span>' : '';
-      rowsHtml += `
-        <tr>
-          <td>${i + 1}</td>
-          <td><input value="${escAttr(r.regNo)}" placeholder="Reg No" maxlength="11" inputmode="numeric" pattern="\d{11}" oninput="updateCell('${yearKey}','${sem}',${i},'regNo',sanitizeRegNo(this.value))" onblur="validateRegNo(this)"><span class="reg-no-warn" style="color:var(--red);font-size:11px"></span></td>
-          <td><input value="${escAttr(r.name)}" placeholder="Student name" oninput="updateCell('${yearKey}','${sem}',${i},'name',this.value)"></td>
-          <td class="narrow"><input value="${escAttr(r.code)}" placeholder="Code" list="code-list-${yearKey}-${semSlug}" oninput="updateCell('${yearKey}','${sem}',${i},'code',this.value)">${carryBadge}</td>
-          <td><input value="${escAttr(r.title)}" placeholder="Course title" oninput="updateCell('${yearKey}','${sem}',${i},'title',this.value)"></td>
-          <td class="narrow"><input type="number" value="${escAttr(r.unit)}" placeholder="Unit" oninput="updateCell('${yearKey}','${sem}',${i},'unit',this.value)"></td>
-          <td class="narrow"><input type="number" value="${escAttr(r.score)}" placeholder="Score" oninput="updateScore('${yearKey}','${sem}',${i},this.value)"></td>
-          <td class="grade-cell grade-${gi.grade}" id="grade-${yearKey}-${sem}-${i}">${gi.grade}</td>
-          <td class="point-cell" id="point-${yearKey}-${sem}-${i}">${gi.point === null ? '' : gi.point}</td>
-          <td class="narrow" style="text-align:center"><input type="checkbox" ${r.isCarryover ? 'checked' : ''} onchange="updateCarryover('${yearKey}','${sem}',${i},this.checked)" title="Carry-over retake"></td>
-          <td><span id="score-warn-${yearKey}-${sem}-${i}" style="color:var(--red);font-size:11px"></span></td>
-          <td><button class="icon-btn" title="Delete row" onclick="deleteRow('${yearKey}','${sem}',${i})">&#10005;</button></td>
-        </tr>
-      `;
-    });
+  // Check if a course is currently open for this semester
+  const isOpen = state.activeCourse &&
+    state.activeCourse.yearKey === yearKey &&
+    state.activeCourse.sem === sem;
+
+  if (isOpen) {
+    return renderCourseRoster(yearKey, sem);
   }
 
-  const safeSem = sem.replace(/[:\\\/\?\*\[\]]/g, '');
-  const datalistHtml = distinctCodes.length ? `<datalist id="code-list-${yearKey}-${semSlug}">${distinctCodes.map(c => `<option value="${escHtml(c)}">`).join('')}</datalist>` : '';
+  // Course card view
+  const courseCardsHtml = renderCourseCards(yearKey, sem, courses, rows);
+
+  let addCourseFormHtml = '';
+  if (currentUser) {
+    addCourseFormHtml = `
+      <div class="add-course-form" id="add-course-form-${yearKey}-${semSlug}">
+        <input type="text" id="new-course-code-${yearKey}-${semSlug}" placeholder="Course Code (e.g. PHY101)" maxlength="20">
+        <input type="text" id="new-course-title-${yearKey}-${semSlug}" placeholder="Course Title">
+        <input type="number" id="new-course-unit-${yearKey}-${semSlug}" placeholder="Unit" min="1" step="1">
+        <button class="btn gold" onclick="launchCourse('${yearKey}', '${sem}', '${semSlug}')">Launch Course</button>
+      </div>
+    `;
+  }
+
   return `
     <div class="semester" id="semester-${yearKey}-${semSlug}">
-      ${datalistHtml}
       <div class="semester-head">
         <h3>${sem}</h3>
         <div class="toolbar">
-          <button class="btn secondary" onclick="addRow('${yearKey}','${sem}')">+ Add student row</button>
           <button class="btn secondary" onclick="document.getElementById('import-${yearKey}-${semSlug}').click()">Import from file</button>
           <input type="file" id="import-${yearKey}-${semSlug}" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleImportFile(this, '${yearKey}', '${sem}')">
           <button class="btn gold" onclick="exportSemesterExcel('${yearKey}','${sem}')">Export to Excel</button>
@@ -456,30 +519,591 @@ function renderSemesterBlock(yearKey, sem) {
         </div>
       </div>
 
+      ${addCourseFormHtml}
+
       <div class="summary-grid" id="summary-${yearKey}-${semSlug}">
         ${summaryCardsHtml(summary)}
       </div>
 
-      <table>
+      ${courseCardsHtml}
+    </div>
+  `;
+}
+
+function renderCourseCards(yearKey, sem, courses, rows) {
+  if (!courses.length) {
+    return `
+      <div class="course-cards-empty">
+        <p>No courses launched yet. Add a course above to start entering results.</p>
+      </div>
+    `;
+  }
+
+  const cards = courses.map(course => {
+    const courseRows = (rows || []).filter(r => r.course_id === course.id || (!r.course_id && (r.code || '').trim().toUpperCase() === (course.course_code || '').trim().toUpperCase()));
+    const studentCount = courseRows.filter(r => (r.regNo || '').trim()).length;
+    const displayCount = course.studentCount || studentCount;
+
+    return `
+      <div class="course-card" data-course-id="${course.id}">
+        <div class="course-card-body" onclick="openCourse('${yearKey}', '${sem.replace(/'/g, "\\'")}', '${course.id}')">
+          <div class="course-code">${escHtml(course.course_code)}</div>
+          <div class="course-title">${escHtml(course.course_title || '')}</div>
+          <div class="course-unit">Unit: ${escHtml(course.credit_unit ?? '')}</div>
+          <div class="course-students">${displayCount} student${displayCount !== 1 ? 's' : ''}</div>
+        </div>
+        <div class="course-card-actions">
+          <button class="btn gold" onclick="exportCourseExcel('${course.id}', '${escAttr(course.course_code)}', '${yearKey}', '${sem.replace(/'/g, "\\'")}')">Export</button>
+          <button class="btn secondary" onclick="printCourse('${course.id}')">Print</button>
+          <button class="btn btn-danger" title="Delete this course and all its results" onclick="deleteCourseConfirm('${course.id}', '${escAttr(course.course_code)}', ${displayCount})">Delete</button>
+        </div>
+      </div>
+    `;
+  });
+
+  return `<div class="course-cards">${cards.join('')}</div>`;
+}
+
+function renderCourseRoster(yearKey, sem) {
+  const courseId = state.activeCourse.courseId;
+  const courses = state.courses[yearKey]?.[sem] || [];
+  const course = courses.find(c => c.id === courseId);
+
+  if (!course) {
+    return `
+      <div class="semester" id="semester-${yearKey}-${sem.replace(/\s+/g, '-')}">
+        <div class="semester-head">
+          <h3>${sem}</h3>
+          <button class="btn secondary" onclick="closeCourseRoster()">← Back to courses</button>
+        </div>
+        <p class="course-not-found">Course not found.</p>
+      </div>
+    `;
+  }
+
+  const allRows = state.years[yearKey][sem];
+  // Filter rows that belong to this course (by course_id or fallback code match).
+  // Preserve the full-array index so event handlers operate on the correct row
+  // in state.years[yearKey][sem] — the filtered roster order does not match
+  // the order of the full semester array.
+  const matched = allRows
+    .map((r, idx) => ({ r, idx }))
+    .filter(({ r }) => r.course_id === course.id || (!r.course_id && (r.code || '').trim().toUpperCase() === (course.course_code || '').trim().toUpperCase()));
+
+  // Sort alphabetically by student_name
+  matched.sort((a, b) => {
+    const nameA = (a.r.name || '').trim().toLowerCase();
+    const nameB = (b.r.name || '').trim().toLowerCase();
+    if (nameA < nameB) return -1;
+    if (nameA > nameB) return 1;
+    return 0;
+  });
+
+  const semSlug = sem.replace(/\s+/g, '-');
+  let rowsHtml = '';
+
+  if (matched.length === 0) {
+    rowsHtml = `<tr class="empty-row"><td colspan="9">No students added yet — add a row below or import from file.</td></tr>`;
+  } else {
+    matched.forEach(({ r, idx }, sn) => {
+      const gi = gradeInfo(r.score);
+      const carryBadge = r.isCarryover ? ' <span class="carry-badge">C/O</span>' : '';
+      rowsHtml += `
+        <tr>
+          <td class="sn-cell">${sn + 1}</td>
+          <td><input value="${escAttr(r.regNo)}" placeholder="Reg No" maxlength="11" inputmode="numeric" pattern="\d{11}" oninput="updateCell('${yearKey}','${sem}',${idx},'regNo',sanitizeRegNo(this.value))" onblur="validateRegNo(this)"><span class="reg-no-warn" id="regNoWarn-${yearKey}-${sem}-${idx}" style="color:var(--red);font-size:11px"></span></td>
+          <td><input value="${escAttr(r.name)}" placeholder="Student name" oninput="updateCell('${yearKey}','${sem}',${idx},'name',this.value)"></td>
+          <td class="narrow"><input type="number" value="${escAttr(r.score)}" placeholder="Score" oninput="updateScore('${yearKey}','${sem}',${idx},this.value)"></td>
+          <td class="grade-cell grade-${gi.grade}" id="grade-${yearKey}-${sem}-${idx}">${gi.grade}</td>
+          <td class="point-cell" id="point-${yearKey}-${sem}-${idx}">${gi.point === null ? '' : gi.point}</td>
+          <td class="narrow" style="text-align:center"><input type="checkbox" ${r.isCarryover ? 'checked' : ''} onchange="updateCarryover('${yearKey}','${sem}',${idx},this.checked)" title="Carry-over retake"></td>
+          <td><span id="score-warn-${yearKey}-${sem}-${idx}" style="color:var(--red);font-size:11px"></span></td>
+          <td><button class="icon-btn" title="Delete row" onclick="deleteRow('${yearKey}','${sem}',${idx})">&#10005;</button></td>
+        </tr>
+      `;
+    });
+  }
+
+  const rosterId = `roster-${course.id}`;
+  return `
+    <div class="semester" id="${rosterId}">
+      <div class="semester-head">
+        <h3>${sem}</h3>
+        <div class="toolbar">
+          <button class="btn gold" onclick="addRow('${yearKey}','${sem}')">+ Add student row</button>
+          <button class="btn secondary" onclick="document.getElementById('import-${yearKey}-${semSlug}').click()">Import from file</button>
+          <input type="file" id="import-${yearKey}-${semSlug}" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleImportFile(this, '${yearKey}', '${sem}')">
+          <button class="btn gold" onclick="exportCourseExcel('${course.id}', '${escAttr(course.course_code)}', '${yearKey}', '${sem}')">Export to Excel</button>
+          <button class="btn secondary" onclick="printCourse('${course.id}')">Print / PDF</button>
+          <button class="btn secondary" onclick="closeCourseRoster()">← Back to courses</button>
+        </div>
+      </div>
+
+      <div class="course-roster-header">
+        <div class="course-code">${escHtml(course.course_code)}</div>
+        <div class="course-title">${escHtml(course.course_title || '')}</div>
+        <div class="course-unit">Credit Unit: ${escHtml(course.credit_unit ?? '')}</div>
+      </div>
+
+      <table class="course-table">
         <thead>
           <tr>
-            <th style="width:5%">S/N</th>
+            <th style="width:4%">S/N</th>
             <th style="width:12%">Reg No</th>
-            <th style="width:20%">Student Name</th>
-            <th style="width:9%">Code</th>
-            <th style="width:20%">Course Title</th>
-            <th style="width:7%">Unit</th>
-            <th style="width:8%">Score</th>
-            <th style="width:6%">Grade</th>
-            <th style="width:6%">Point</th>
-            <th style="width:4%">C/O</th>
-            <th style="width:4%"></th>
+            <th style="width:28%">Student Name</th>
+            <th style="width:10%">Score</th>
+            <th style="width:8%">Grade</th>
+            <th style="width:8%">Point</th>
+            <th style="width:8%">C/O</th>
+            <th style="width:12%"></th>
+            <th style="width:20%"></th>
           </tr>
         </thead>
         <tbody>${rowsHtml}</tbody>
       </table>
     </div>
   `;
+}
+
+function closeCourseRoster() {
+  state.activeCourse = null;
+  render();
+}
+
+function openCourse(yearKey, sem, courseId) {
+  state.activeCourse = { yearKey, sem, courseId };
+  render();
+}
+
+async function launchCourse(yearKey, sem, semSlug) {
+  if (!currentUser) return;
+
+  const codeInput = document.getElementById(`new-course-code-${yearKey}-${semSlug}`);
+  const titleInput = document.getElementById(`new-course-title-${yearKey}-${semSlug}`);
+  const unitInput = document.getElementById(`new-course-unit-${yearKey}-${semSlug}`);
+
+  if (!codeInput) return;
+
+  const course_code = codeInput.value.trim().toUpperCase();
+  const course_title = titleInput ? titleInput.value.trim() : '';
+  const credit_unit = unitInput && unitInput.value.trim() ? parseFloat(unitInput.value.trim()) : null;
+
+  if (!course_code) {
+    alert('Course code is required.');
+    codeInput.focus();
+    return;
+  }
+
+  try {
+    const data = await apiFetch('/api/courses', {
+      method: 'POST',
+      body: JSON.stringify({
+        year: yearKey,
+        semester: sem,
+        course_code,
+        course_title,
+        credit_unit
+      })
+    });
+
+    // Add to local state
+    if (!state.courses[yearKey]) state.courses[yearKey] = {};
+    if (!state.courses[yearKey][sem]) state.courses[yearKey][sem] = [];
+    state.courses[yearKey][sem].push({
+      id: data.id,
+      course_code: data.course_code,
+      course_title: data.course_title || '',
+      credit_unit: data.credit_unit ?? '',
+      studentCount: 0
+    });
+    saveToLocalStorage();
+
+    // Clear inputs
+    codeInput.value = '';
+    if (titleInput) titleInput.value = '';
+    if (unitInput) unitInput.value = '';
+
+    // Open the newly created course's roster
+    state.activeCourse = { yearKey, sem, courseId: data.id };
+    render();
+  } catch (err) {
+    if (err.message && err.message.includes('409')) {
+      alert('A course with this code already exists for this year and semester.');
+    } else {
+      alert('Failed to launch course: ' + (err.message || 'Unknown error'));
+    }
+  }
+}
+
+function deleteCourseConfirm(courseId, courseCode, studentCount) {
+  const confirmed = confirm(
+    `Delete course "${courseCode}"?\n\n` +
+    `This will permanently remove ${studentCount} student result${studentCount !== 1 ? 's' : ''} for this course.\n\n` +
+    `This action cannot be undone.`
+  );
+  if (!confirmed) return;
+  deleteCourse(courseId);
+}
+
+async function deleteCourse(courseId) {
+  if (!currentUser || !accessToken) return;
+  try {
+    const response = await apiFetch(`/api/courses/${encodeURIComponent(courseId)}`, {
+      method: 'DELETE'
+    });
+
+    // Remove course from local state
+    for (const yearKey of YEAR_KEYS) {
+      for (const sem of SEMESTERS) {
+        const courseList = state.courses[yearKey]?.[sem] || [];
+        state.courses[yearKey][sem] = courseList.filter(c => c.id !== courseId);
+      }
+    }
+
+    // Also remove all results rows that were linked to this course
+    YEAR_KEYS.forEach(yearKey => {
+      SEMESTERS.forEach(sem => {
+        if (state.years[yearKey] && state.years[yearKey][sem]) {
+          state.years[yearKey][sem] = state.years[yearKey][sem].filter(r => r.course_id !== courseId);
+          if (state.years[yearKey][sem].length === 0) state.years[yearKey][sem].push(emptyRow());
+        }
+      });
+    });
+
+    // Close the course roster if it was open
+    if (state.activeCourse && state.activeCourse.courseId === courseId) {
+      state.activeCourse = null;
+    }
+
+    saveToLocalStorage();
+    render();
+  } catch (err) {
+    if (err.message && err.message.includes('404')) {
+      alert('Course not found or already deleted.');
+    } else {
+      alert('Failed to delete course: ' + (err.message || 'Unknown error'));
+    }
+  }
+}
+
+/* ===================== COURSE ROSTER ROW EDITING =====================
+   Row editing operates on the flat state.years[yearKey][sem] array.
+   When the user is inside a course roster, the roster's addRow/deleteRow
+   still operate on the full semester array; the roster simply filters
+   to show only the rows matching the active course.
+   New rows created in the roster context are linked to the active course
+   via course_id, and course_code/course_title/credit_unit are copied
+   from the course metadata. */
+function addRow(yearKey, sem) {
+  const row = emptyRow();
+  // If a course is open, pre-fill course metadata
+  if (state.activeCourse && state.activeCourse.yearKey === yearKey && state.activeCourse.sem === sem) {
+    const courses = state.courses[yearKey]?.[sem] || [];
+    const course = courses.find(c => c.id === state.activeCourse.courseId);
+    if (course) {
+      row.code = course.course_code || '';
+      row.title = course.course_title || '';
+      row.unit = course.credit_unit ?? '';
+      row.course_id = course.id;
+    }
+  }
+  state.years[yearKey][sem].push(row);
+  saveToLocalStorage();
+  render();
+}
+
+/* ===================== EXCEL EXPORT ===================== */
+async function getLogoBuffer() {
+  try {
+    const response = await fetch('assets/futo-logo.jpeg');
+    const blob = await response.blob();
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsArrayBuffer(blob);
+    });
+  } catch (e) {
+    console.error('Failed to load logo for Excel export:', e);
+    return null;
+  }
+}
+
+function excelColLetter(n) { return String.fromCharCode(64 + n); }
+function excelSpan(colCount, row) { return `A${row}:${excelColLetter(colCount)}${row}`; }
+
+function excelMergeHeader(sheet, rowNum, colCount, value, fontOpts) {
+  sheet.mergeCells(excelSpan(colCount, rowNum));
+  const cell = sheet.getCell(`A${rowNum}`);
+  cell.value = value;
+  cell.font = (fontOpts && fontOpts.font) || { bold: true, size: 12 };
+  cell.alignment = { horizontal: 'center', vertical: 'middle' };
+  if (fontOpts && fontOpts.fill) cell.fill = fontOpts.fill;
+}
+
+function excelHeaderRow(sheet, rowNum, headers) {
+  const row = sheet.getRow(rowNum);
+  headers.forEach((headerText, idx) => {
+    const cell = row.getCell(idx + 1);
+    cell.value = headerText;
+    cell.font = { bold: true, color: { argb: 'FFF3F1E9' } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0B4432' } };
+    cell.alignment = { horizontal: 'center', vertical: 'middle' };
+  });
+  return row;
+}
+
+function excelStyleDataRow(row, colCount) {
+  for (let c = 1; c <= colCount; c++) {
+    row.getCell(c).alignment = { horizontal: 'center', vertical: 'middle' };
+  }
+}
+
+function excelContentWidths(headers, dataRows) {
+  const widths = headers.map(h => {
+    const len = String(h === undefined || h === null ? '' : h).length;
+    return Math.min(Math.max(len + 3, 8), 50);
+  });
+  if (dataRows) {
+    dataRows.forEach(rowValues => {
+      for (let i = 0; i < headers.length; i++) {
+        const val = rowValues[i];
+        if (val !== undefined && val !== null && val !== '') {
+          const len = String(val).length;
+          if (len + 3 > widths[i]) widths[i] = Math.min(len + 3, 50);
+        }
+      }
+    });
+  }
+  return widths;
+}
+
+function excelSetWidths(sheet, widths) {
+  widths.forEach((w, idx) => { sheet.getColumn(idx + 1).width = w; });
+}
+
+function excelAddLogosToSheet(workbook, sheet, colCount, logoBuffer) {
+  if (!logoBuffer) return;
+  try {
+    const imageId = workbook.addImage({ buffer: logoBuffer, extension: 'jpg' });
+    const rightCol = Math.max(colCount - 1.5, 3.5);
+    sheet.addImage(imageId, { tl: { col: 0.5, row: 0.1 }, ext: { width: 48, height: 48 } });
+    sheet.addImage(imageId, { tl: { col: rightCol, row: 0.1 }, ext: { width: 48, height: 48 } });
+  } catch (e) {
+    console.error('Failed to embed logo in Excel:', e);
+  }
+}
+
+async function excelAddLogos(workbook, sheet, colCount) {
+  const logoBuffer = await getLogoBuffer();
+  excelAddLogosToSheet(workbook, sheet, colCount, logoBuffer);
+}
+
+function excelSetRowHeights(sheet, startRow, dataCount, headerHeight, dataHeight) {
+  for (let r = 1; r <= startRow; r++) {
+    sheet.getRow(r).height = headerHeight;
+  }
+  for (let r = startRow + 1; r <= startRow + dataCount; r++) {
+    sheet.getRow(r).height = dataHeight;
+  }
+}
+
+async function exportCourseExcel(courseId, courseCode, yearKey, sem) {
+  const rows = getCourseRows(courseId);
+  if (!rows || !rows.length) {
+    alert('No student rows to export for this course.');
+    return;
+  }
+
+  const safeCode = courseCode.replace(/[:\\\/\?\*\[\]]/g, '');
+  const safeYear = yearKey.replace(/[:\\\/\?\*\[\]]/g, '');
+  const safeSem = sem.replace(/[:\\\/\?\*\[\]]/g, '');
+  const session = state.academicSessions[yearKey] || '';
+  const title = `${yearKey} — ${sem} — ${courseCode}`;
+
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet(safeSem || 'Sheet1');
+
+  const headers = ['Reg No', 'Student Name', 'Score', 'Grade', 'Grade Point', 'Carry-over'];
+  const colCount = headers.length;
+  const sortedRows = rows.slice().sort((a, b) => {
+    const nameA = (a.name || '').trim().toLowerCase();
+    const nameB = (b.name || '').trim().toLowerCase();
+    return nameA < nameB ? -1 : nameA > nameB ? 1 : 0;
+  });
+
+  // Letterhead (dynamic span, session, logos)
+  excelMergeHeader(sheet, 1, colCount, META.university, { font: { bold: true, size: 14 } });
+  excelMergeHeader(sheet, 2, colCount, state.meta.school);
+  excelMergeHeader(sheet, 3, colCount, state.meta.department);
+  excelMergeHeader(sheet, 4, colCount, title);
+
+  let headerRowNum = 5;
+  if (session) {
+    excelMergeHeader(sheet, 5, colCount, session, { font: { italic: true, size: 11 } });
+    headerRowNum = 6;
+  }
+
+  await excelAddLogos(workbook, sheet, colCount);
+
+  // Header row
+  excelHeaderRow(sheet, headerRowNum, headers);
+
+  // Data rows
+  const dataRowsForWidth = [];
+  sortedRows.forEach((r, idx) => {
+    const excelRow = sheet.getRow(headerRowNum + 1 + idx);
+    const gi = gradeInfo(r.score);
+    excelRow.getCell(1).value = r.regNo;
+    excelRow.getCell(2).value = r.name;
+    excelRow.getCell(3).value = r.score === '' ? null : parseFloat(r.score);
+    excelRow.getCell(4).value = gi.grade || '';
+    excelRow.getCell(5).value = gi.point === null ? '' : gi.point;
+    excelRow.getCell(6).value = r.isCarryover ? 'Yes' : 'No';
+    excelStyleDataRow(excelRow, colCount);
+    dataRowsForWidth.push([r.regNo, r.name, r.score === '' ? null : parseFloat(r.score), gi.grade || '', gi.point === null ? '' : gi.point, r.isCarryover ? 'Yes' : 'No']);
+  });
+
+  // Content-based column widths
+  const colWidths = excelContentWidths(headers, dataRowsForWidth);
+  excelSetWidths(sheet, colWidths);
+
+  // Row heights
+  excelSetRowHeights(sheet, headerRowNum, sortedRows.length, 18, 16);
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${safeCode} - ${safeYear} - ${safeSem}.xlsx`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+function getCourseRows(courseId) {
+  const courses = state.courses;
+  for (const yearKey of YEAR_KEYS) {
+    for (const sem of SEMESTERS) {
+      const courseList = courses[yearKey]?.[sem] || [];
+      const course = courseList.find(c => c.id === courseId);
+      if (course) {
+        const allRows = state.years[yearKey][sem] || [];
+        return allRows.filter(r => r.course_id === course.id || (!r.course_id && (r.code || '').trim().toUpperCase() === (course.course_code || '').trim().toUpperCase()));
+      }
+    }
+  }
+  return [];
+}
+
+function printCourse(courseId) {
+  const rows = getCourseRows(courseId);
+  if (!rows || !rows.length) {
+    alert('No student rows to print for this course.');
+    return;
+  }
+
+  const course = findCourseById(courseId);
+  if (!course) return;
+  const session = state.academicSessions[course.yearKey] || '';
+
+  const sortedRows = rows.slice().sort((a, b) => {
+    const nameA = (a.name || '').trim().toLowerCase();
+    const nameB = (b.name || '').trim().toLowerCase();
+    return nameA < nameB ? -1 : nameA > nameB ? 1 : 0;
+  });
+
+  let tableRows = '';
+  sortedRows.forEach((r, i) => {
+    const gi = gradeInfo(r.score);
+    const carryBadge = r.isCarryover ? ' <span class="carry-badge">C/O</span>' : '';
+    tableRows += `
+      <tr>
+        <td style="text-align:center">${i + 1}</td>
+        <td>${escHtml(r.regNo)}</td>
+        <td>${escHtml(r.name)}</td>
+        <td style="text-align:center">${escHtml(r.score)}</td>
+        <td style="text-align:center;font-weight:600">${gi.grade}</td>
+        <td style="text-align:center">${gi.point === null ? '' : gi.point}</td>
+        <td style="text-align:center">${carryBadge}</td>
+      </tr>
+    `;
+  });
+
+  let printWindow = window.open('', '_blank', 'width=900,height=700');
+  if (!printWindow) return;
+
+  printWindow.document.write(`
+    <html>
+      <head>
+        <title>Print: ${course.course_code}</title>
+        <style>
+          body { font-family: 'Inter', sans-serif; margin: 20px; color: #1C1F1D; }
+          .letterhead-print { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid #0B4432; padding-bottom: 16px; margin-bottom: 22px; }
+          .logo { width: 56px; height: 56px; object-fit: cover; border-radius: 50%; }
+          .center { flex: 1; text-align: center; }
+          .center h2 { margin: 0; font-size: 19px; color: #0B4432; }
+          .center p { margin: 3px 0; font-size: 13px; }
+          .title-row { margin-top: 10px; font-size: 13px; font-weight: 600; color: #B0812E; }
+          table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 16px; }
+          th { background: #0B4432; color: #F3F1E9; font-weight: 600; text-align: left; padding: 8px 8px; font-size: 11.5px; }
+          td { border-bottom: 1px solid #ECE8DD; padding: 5px 6px; }
+          .carry-badge { display: inline-block; background: #D4870D; color: #fff; font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 4px; }
+          .watermark-print { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-35deg); font-size: 28px; font-weight: 700; color: rgba(160, 60, 40, 0.18); white-space: nowrap; pointer-events: none; z-index: 5; }
+        </style>
+      </head>
+      <body>
+        <div class="letterhead-print">
+          <img src="assets/futo-logo.jpeg" class="logo" alt="FUTO Logo">
+          <div class="center">
+            <h2>FEDERAL UNIVERSITY OF TECHNOLOGY OWERRI</h2>
+            <p>${escHtml(state.meta.school)}</p>
+            <p>${escHtml(state.meta.department)}</p>
+            <div class="title-row">${escHtml(`${course.course_code} — ${course.course_title || ''} — ${course.yearKey}`)}</div>
+            ${session ? `<p style="font-size:12px;color:#6B7168;font-style:italic">${escHtml(session)} SESSION</p>` : ''}
+          </div>
+          <img src="assets/futo-logo.jpeg" class="logo" alt="FUTO Logo">
+        </div>
+        <div class="watermark-print">UNOFFICIAL / STUDENT COPY — FOR REFERENCE ONLY</div>
+        <table>
+          <thead>
+            <tr>
+              <th style="width:5%">S/N</th>
+              <th style="width:18%">Reg No</th>
+              <th style="width:30%">Student Name</th>
+              <th style="width:12%">Score</th>
+              <th style="width:10%">Grade</th>
+              <th style="width:10%">Point</th>
+              <th style="width:10%">C/O</th>
+            </tr>
+          </thead>
+          <tbody>${tableRows}</tbody>
+        </table>
+      </body>
+    </html>
+  `);
+
+  printWindow.document.close();
+  printWindow.focus();
+  printWindow.print();
+  printWindow.close();
+}
+
+function findCourseById(courseId) {
+  for (const yearKey of YEAR_KEYS) {
+    for (const sem of SEMESTERS) {
+      const courseList = state.courses[yearKey]?.[sem] || [];
+      const course = courseList.find(c => c.id === courseId);
+      if (course) {
+        return { ...course, yearKey, sem };
+      }
+    }
+  }
+  return null;
+}
+
+function yearKeyForCourse(courseId) {
+  const c = findCourseById(courseId);
+  return c ? c.yearKey : '';
 }
 
 function summaryCardsHtml(s) {
@@ -556,12 +1180,6 @@ function updateCarryover(yearKey, sem, idx, checked) {
   render();
 }
 
-function addRow(yearKey, sem) {
-  state.years[yearKey][sem].push(emptyRow());
-  saveToLocalStorage();
-  render();
-}
-
 function deleteRow(yearKey, sem, idx) {
   const row = state.years[yearKey][sem][idx];
   if (row.id) deleteRowRemote(row.id);
@@ -571,9 +1189,7 @@ function deleteRow(yearKey, sem, idx) {
 }
 
 /* ===================== API SYNC =====================
-   Guest mode (no sign-in, or Supabase not configured yet): everything
-   stays in localStorage — use Save/Load data (.json) to back it up.
-   Signed-in users sync through the Express API. */
+   Signed-in users sync data through the Express API. */
 
 function scheduleSave(yearKey, sem, idx) {
   if (!currentUser || !accessToken) return;
@@ -641,6 +1257,7 @@ async function replayOfflineQueue() {
     updateSyncUI();
     if (currentUser && accessToken) {
       await loadFromApi();
+      await loadCourses();
       render();
     }
   }
@@ -652,6 +1269,18 @@ async function saveRowRemote(yearKey, sem, idx) {
   if (!row) return;
   if (!row.regNo && !row.name && !row.code && !row.title && !row.unit && !row.score) return;
 
+  // Client-side duplicate check: scoped to the currently-open course only
+  if (state.activeCourse && state.activeCourse.yearKey === yearKey && state.activeCourse.sem === sem && row.course_id) {
+    const courseRows = state.years[yearKey][sem].filter(r => r.course_id === row.course_id);
+    const isDuplicate = courseRows.some((r, i) => i !== idx && (r.regNo || '').trim() === (row.regNo || '').trim() && (r.regNo || '').trim() !== '');
+    const warnEl = document.getElementById(`regNoWarn-${yearKey}-${sem}-${idx}`);
+    if (isDuplicate) {
+      if (warnEl) { warnEl.textContent = `Duplicate: reg no ${(row.regNo || '').trim()} already exists in this course.`; warnEl.style.color = 'var(--red)'; }
+      return;
+    }
+    if (warnEl) { warnEl.textContent = ''; }
+  }
+
   const payload = {
     year: yearKey,
     semester: sem,
@@ -661,7 +1290,8 @@ async function saveRowRemote(yearKey, sem, idx) {
     course_title: row.title || null,
     credit_unit: row.unit === '' ? null : parseFloat(row.unit),
     score: row.score === '' ? null : parseFloat(row.score),
-    is_carryover: !!row.isCarryover
+    is_carryover: !!row.isCarryover,
+    course_id: row.course_id || null
   };
 
   try {
@@ -696,7 +1326,7 @@ async function loadFromApi() {
   if (!currentUser || !accessToken) return;
   try {
     const data = await apiFetch('/api/results');
-    YEAR_KEYS.forEach(y => { state.years[y] = {}; SEMESTERS.forEach(s => { state.years[y][s] = []; }); });
+    YEAR_KEYS.forEach(y => { state.years[y] = {}; state.courses[y] = {}; SEMESTERS.forEach(s => { state.years[y][s] = []; state.courses[y][s] = []; }); });
 
     (data || []).forEach(row => {
       if (!state.years[row.year] || !state.years[row.year][row.semester]) return;
@@ -708,7 +1338,8 @@ async function loadFromApi() {
         title: row.course_title || '',
         unit: row.credit_unit ?? '',
         score: row.score ?? '',
-        isCarryover: !!row.is_carryover
+        isCarryover: !!row.is_carryover,
+        course_id: row.course_id || null
       });
     });
 
@@ -720,11 +1351,40 @@ async function loadFromApi() {
   }
 }
 
+async function loadCourses() {
+  if (!currentUser || !accessToken) return;
+  try {
+    const data = await apiFetch('/api/courses');
+    YEAR_KEYS.forEach(y => {
+      if (!state.courses[y]) state.courses[y] = {};
+      SEMESTERS.forEach(s => { state.courses[y][s] = []; });
+    });
+
+    (data || []).forEach(c => {
+      if (!state.courses[c.year] || !state.courses[c.year][c.semester]) return;
+      state.courses[c.year][c.semester].push({
+        id: c.id,
+        course_code: c.course_code || '',
+        course_title: c.course_title || '',
+        credit_unit: c.credit_unit ?? '',
+        studentCount: c.studentCount || 0
+      });
+    });
+  } catch (err) {
+    console.error('Courses load failed:', err.message);
+  }
+}
+
 function updateSyncUI() {
   const chip = document.getElementById('userChip');
   const status = document.querySelector('.sync-status');
-  const displayName = (currentUser?.user_metadata?.full_name || currentUser?.email || '').trim();
-  if (chip) chip.textContent = displayName || 'Not signed in';
+  if (chip) {
+    const fullName = (currentUser?.user_metadata?.full_name || '').trim();
+    const email = currentUser?.email || '';
+    const displayName = fullName || email || 'Not signed in';
+    const avatar = currentUser ? generateInitialsAvatar(fullName, email, 28) : '';
+    chip.innerHTML = `${avatar}<span style="margin-left:8px">${displayName}</span>`;
+  }
   if (status) {
     if (currentUser) {
       status.innerHTML = '<span class="dot"></span>Signed in — synced via API';
@@ -742,6 +1402,7 @@ async function initApp() {
       currentUser = session.user;
       accessToken = session.access_token;
       await loadFromApi();
+      await loadCourses();
       await loadSettings();
     } else {
       loadFromLocalStorage();
@@ -996,7 +1657,16 @@ function renderCumulativeView() {
   const rows = state.years[yearKey][sem] || [];
   const sorted = rows.slice().sort((a, b) => (a.name || '').trim().toLowerCase() < (b.name || '').trim().toLowerCase() ? -1 : 1);
 
-  const codes = Array.from(new Set(rows.map(r => (r.code || '').trim()).filter(Boolean))).sort();
+  // Source course codes from the courses table for stable, deliberate column order
+  // (falls back to deriving distinct codes from results rows if no courses table data)
+  const courseList = state.courses[yearKey]?.[sem] || [];
+  let codes;
+  if (courseList.length) {
+    codes = courseList.map(c => (c.course_code || '').trim()).filter(Boolean);
+  } else {
+    codes = Array.from(new Set(rows.map(r => (r.code || '').trim()).filter(Boolean))).sort();
+  }
+
   const byReg = {};
   sorted.forEach(r => {
     const reg = (r.regNo || '').trim();
@@ -1027,7 +1697,7 @@ function renderCumulativeView() {
   const yearOptions = YEAR_KEYS.map(y => `<option value="${y}" ${y === yearKey ? 'selected' : ''}>${y}</option>`).join('');
   const semOptions = SEMESTERS.map(s => `<option value="${s}" ${s === sem ? 'selected' : ''}>${s}</option>`).join('');
 
-  return renderLetterhead(title) + `
+  return renderLetterhead(title, session) + `
     <div class="cum-toolbar">
       <div class="cum-toggle">
         <select id="cumYear">${yearOptions}</select>
@@ -1086,7 +1756,16 @@ async function exportCumulativeExcel() {
   const sem = cumState.sem;
   const rows = state.years[yearKey][sem] || [];
   const sorted = rows.slice().sort((a, b) => (a.name || '').trim().toLowerCase() < (b.name || '').trim().toLowerCase() ? -1 : 1);
-  const codes = Array.from(new Set(rows.map(r => (r.code || '').trim()).filter(Boolean))).sort();
+
+  // Source course codes from the courses table for stable column order
+  const courseList = state.courses[yearKey]?.[sem] || [];
+  let codes;
+  if (courseList.length) {
+    codes = courseList.map(c => (c.course_code || '').trim()).filter(Boolean);
+  } else {
+    codes = Array.from(new Set(rows.map(r => (r.code || '').trim()).filter(Boolean))).sort();
+  }
+
   const byReg = {};
   sorted.forEach(r => {
     const reg = (r.regNo || '').trim();
@@ -1099,70 +1778,58 @@ async function exportCumulativeExcel() {
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet(sem.replace(/[:\\\/\?\*\[\]]/g, ''));
 
-  sheet.mergeCells('A1:Z1');
-  sheet.getCell('A1').value = META.university;
-  sheet.getCell('A1').font = { bold: true, size: 14 };
-  sheet.getCell('A1').alignment = { horizontal: 'center' };
+  const session = state.academicSessions[yearKey] || '';
+  const colCount = codes.length + 4;
+  const headers = ['S/N', 'Name', 'Reg No', ...codes, 'Remarks'];
 
-  sheet.mergeCells('A2:Z2');
-  sheet.getCell('A2').value = state.meta.school;
-  sheet.getCell('A2').font = { bold: true, size: 12 };
-  sheet.getCell('A2').alignment = { horizontal: 'center' };
+  excelMergeHeader(sheet, 1, colCount, META.university, { font: { bold: true, size: 14 } });
+  excelMergeHeader(sheet, 2, colCount, state.meta.school);
+  excelMergeHeader(sheet, 3, colCount, state.meta.department);
+  excelMergeHeader(sheet, 4, colCount, `${yearKey} — ${sem}`);
 
-  sheet.mergeCells('A3:Z3');
-  sheet.getCell('A3').value = state.meta.department;
-  sheet.getCell('A3').font = { bold: true, size: 12 };
-  sheet.getCell('A3').alignment = { horizontal: 'center' };
-
-  sheet.mergeCells('A4:Z4');
-  sheet.getCell('A4').value = `${yearKey} — ${sem}`;
-  sheet.getCell('A4').font = { bold: true, size: 12 };
-  sheet.getCell('A4').alignment = { horizontal: 'center' };
-
-  const logoBuffer = await getLogoBuffer();
-  if (logoBuffer) {
-    try {
-      const imageId = workbook.addImage({ buffer: logoBuffer, extension: 'jpg' });
-      sheet.addImage(imageId, { tl: { col: 0.5, row: 0.1 }, ext: { width: 48, height: 48 } });
-      const rightCol = codes.length + 4;
-      sheet.addImage(imageId, { tl: { col: Math.max(rightCol - 0.5, 7.5), row: 0.1 }, ext: { width: 48, height: 48 } });
-    } catch (e) {
-      console.error('Failed to embed logo in Excel:', e);
-    }
+  let headerRowNum = 5;
+  if (session) {
+    excelMergeHeader(sheet, 5, colCount, session, { font: { italic: true, size: 11 } });
+    headerRowNum = 6;
   }
 
-  const headerRow = sheet.getRow(6);
-  ['S/N', 'Name', 'Reg No', ...codes].forEach((header, idx) => {
-    const cell = headerRow.getCell(idx + 1);
-    cell.value = header;
-    cell.font = { bold: true, color: { argb: 'FFF3F1E9' } };
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0B4432' } };
-  });
-  headerRow.getCell(codes.length + 4).value = 'Remarks';
-  headerRow.getCell(codes.length + 4).font = { bold: true, color: { argb: 'FFF3F1E9' } };
-  headerRow.getCell(codes.length + 4).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0B4432' } };
+  await excelAddLogos(workbook, sheet, colCount);
+  excelHeaderRow(sheet, headerRowNum, headers);
 
+  const dataRowsForWidth = [];
   students.forEach((stu, idx) => {
-    const excelRow = sheet.getRow(7 + idx);
+    const excelRow = sheet.getRow(headerRowNum + 1 + idx);
     const fCount = rows.filter(r => (r.regNo || '').trim() === stu.regNo && gradeInfo(r.score).grade === 'F').length;
     const remark = fCount === 0 ? 'Pass' : `${fCount}F`;
     excelRow.getCell(1).value = idx + 1;
     excelRow.getCell(2).value = stu.name;
     excelRow.getCell(3).value = stu.regNo;
+    const rowValues = [idx + 1, stu.name, stu.regNo];
     codes.forEach((code, ci) => {
       const r = stu.scores[code];
       const cell = excelRow.getCell(4 + ci);
       if (r) {
         const gi = gradeInfo(r.score);
         cell.value = `${r.score} (${gi.grade})`;
+        rowValues.push(`${r.score} (${gi.grade})`);
       } else {
         cell.value = '—';
+        rowValues.push('—');
       }
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
     });
     excelRow.getCell(4 + codes.length).value = remark;
+    excelRow.getCell(4 + codes.length).alignment = { horizontal: 'center', vertical: 'middle' };
+    rowValues.push(remark);
+    excelRow.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
+    excelRow.getCell(2).alignment = { horizontal: 'center', vertical: 'middle' };
+    excelRow.getCell(3).alignment = { horizontal: 'center', vertical: 'middle' };
+    excelStyleDataRow(excelRow, 3);
+    dataRowsForWidth.push(rowValues);
   });
 
-  sheet.columns.forEach(col => { col.width = 18; });
+  excelSetWidths(sheet, excelContentWidths(headers, dataRowsForWidth));
+  excelSetRowHeights(sheet, headerRowNum, students.length, 18, 16);
 
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -1174,78 +1841,46 @@ async function exportCumulativeExcel() {
   URL.revokeObjectURL(url);
 }
 
-/* ===================== EXCEL EXPORT ===================== */
-async function getLogoBuffer() {
-  try {
-    const response = await fetch('assets/futo-logo.jpeg');
-    const blob = await response.blob();
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result);
-      reader.onerror = reject;
-      reader.readAsArrayBuffer(blob);
-    });
-  } catch (e) {
-    console.error('Failed to load logo for Excel export:', e);
-    return null;
-  }
-}
+/* ===================== SEMESTER / YEAR / TRANSCRIPT EXCEL EXPORT ===================== */
 
 async function exportSemesterExcel(yearKey, sem) {
   const rows = state.years[yearKey][sem];
-  const data = rows.map((r, idx) => {
-    const gi = gradeInfo(r.score);
-    return { 'S/N': idx + 1, 'Reg No': r.regNo, 'Student Name': r.name, 'Course Code': r.code, 'Course Title': r.title,
-      'Credit Unit': r.unit, 'Score': r.score, 'Grade': gi.grade, 'Grade Point': gi.point };
-  });
+  const session = state.academicSessions[yearKey] || '';
+  const title = `${yearKey} — ${sem}`
 
   const workbook = new ExcelJS.Workbook();
-  const sheet = workbook.addWorksheet(sem.replace(/[:\\\/\?\*\[\]]/g, ''));
+  const sheet = workbook.addWorksheet(sem.replace(/[:\\\/\?\*\[\]]/g, '') || 'Sheet1');
 
-  sheet.mergeCells('A1:J1');
-  sheet.getCell('A1').value = META.university;
-  sheet.getCell('A1').font = { bold: true, size: 14 };
-  sheet.getCell('A1').alignment = { horizontal: 'center' };
+  const headers = ['S/N', 'Reg No', 'Student Name', 'Course Code', 'Course Title', 'Credit Unit', 'Score', 'Grade', 'Grade Point'];
+  const colCount = headers.length;
 
-  sheet.mergeCells('A2:J2');
-  sheet.getCell('A2').value = state.meta.school;
-  sheet.getCell('A2').font = { bold: true, size: 12 };
-  sheet.getCell('A2').alignment = { horizontal: 'center' };
+  excelMergeHeader(sheet, 1, colCount, META.university, { font: { bold: true, size: 14 } });
+  excelMergeHeader(sheet, 2, colCount, state.meta.school);
+  excelMergeHeader(sheet, 3, colCount, state.meta.department);
+  excelMergeHeader(sheet, 4, colCount, title);
 
-  sheet.mergeCells('A3:J3');
-  sheet.getCell('A3').value = state.meta.department;
-  sheet.getCell('A3').font = { bold: true, size: 12 };
-  sheet.getCell('A3').alignment = { horizontal: 'center' };
-
-  const logoBuffer = await getLogoBuffer();
-  if (logoBuffer) {
-    try {
-      const imageId = workbook.addImage({ buffer: logoBuffer, extension: 'jpg' });
-      sheet.addImage(imageId, { tl: { col: 0.5, row: 0.1 }, ext: { width: 48, height: 48 } });
-      sheet.addImage(imageId, { tl: { col: 9.5, row: 0.1 }, ext: { width: 48, height: 48 } });
-    } catch (e) {
-      console.error('Failed to embed logo in Excel:', e);
-    }
+  let headerRowNum = 5;
+  if (session) {
+    excelMergeHeader(sheet, 5, colCount, session, { font: { italic: true, size: 11 } });
+    headerRowNum = 6;
   }
 
-  const headerRow = sheet.getRow(5);
-  ['S/N', 'Reg No', 'Student Name', 'Course Code', 'Course Title', 'Credit Unit', 'Score', 'Grade', 'Grade Point'].forEach((headerText, idx) => {
-    const cell = headerRow.getCell(idx + 1);
-    cell.value = headerText;
-    cell.font = { bold: true, color: { argb: 'FFF3F1E9' } };
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0B4432' } };
+  await excelAddLogos(workbook, sheet, colCount);
+  excelHeaderRow(sheet, headerRowNum, headers);
+
+  const dataRowsForWidth = [];
+  rows.forEach((r, idx) => {
+    const gi = gradeInfo(r.score);
+    const excelRow = sheet.getRow(headerRowNum + 1 + idx);
+    const scoreVal = r.score === '' ? null : parseFloat(r.score);
+    const values = [idx + 1, r.regNo, r.name, r.code, r.title, r.unit, scoreVal, gi.grade || '', gi.point === null ? '' : gi.point];
+    values.forEach((val, colIdx) => { excelRow.getCell(colIdx + 1).value = val; });
+    excelStyleDataRow(excelRow, colCount);
+    dataRowsForWidth.push(values);
   });
 
-  data.forEach((row, idx) => {
-    const excelRow = sheet.getRow(6 + idx);
-    Object.values(row).forEach((val, colIdx) => {
-      excelRow.getCell(colIdx + 1).value = val;
-    });
-  });
-
-  sheet.columns.forEach(col => {
-    col.width = 18;
-  });
+  excelSetWidths(sheet, excelContentWidths(headers, dataRowsForWidth));
+  excelSetRowHeights(sheet, headerRowNum, rows.length, 18, 16);
 
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -1258,68 +1893,49 @@ async function exportSemesterExcel(yearKey, sem) {
 }
 
 async function exportYearExcel(yearKey) {
+  const session = state.academicSessions[yearKey] || '';
   const workbook = new ExcelJS.Workbook();
-  const logoBuffer = await getLogoBuffer();
+  const headers = ['S/N', 'Reg No', 'Student Name', 'Course Code', 'Course Title', 'Credit Unit', 'Score', 'Grade', 'Grade Point'];
+  const colCount = headers.length;
 
   SEMESTERS.forEach(sem => {
     const rows = state.years[yearKey][sem];
-    const data = rows.map((r, idx) => {
-      const gi = gradeInfo(r.score);
-      return { 'S/N': idx + 1, 'Reg No': r.regNo, 'Student Name': r.name, 'Course Code': r.code, 'Course Title': r.title,
-        'Credit Unit': r.unit, 'Score': r.score, 'Grade': gi.grade, 'Grade Point': gi.point };
-    });
+    const title = `${yearKey} — ${sem}`
 
     const safeSem = sem.replace(/[:\\\/\?\*\[\]]/g, '');
-    const sheet = workbook.addWorksheet(safeSem);
+    const sheet = workbook.addWorksheet(safeSem || 'Sheet1');
 
-    sheet.mergeCells('A1:J1');
-    sheet.getCell('A1').value = META.university;
-    sheet.getCell('A1').font = { bold: true, size: 14 };
-    sheet.getCell('A1').alignment = { horizontal: 'center' };
+    excelMergeHeader(sheet, 1, colCount, META.university, { font: { bold: true, size: 14 } });
+    excelMergeHeader(sheet, 2, colCount, state.meta.school);
+    excelMergeHeader(sheet, 3, colCount, state.meta.department);
+    excelMergeHeader(sheet, 4, colCount, title);
 
-    sheet.mergeCells('A2:J2');
-    sheet.getCell('A2').value = state.meta.school;
-    sheet.getCell('A2').font = { bold: true, size: 12 };
-    sheet.getCell('A2').alignment = { horizontal: 'center' };
-
-    sheet.mergeCells('A3:J3');
-    sheet.getCell('A3').value = state.meta.department;
-    sheet.getCell('A3').font = { bold: true, size: 12 };
-    sheet.getCell('A3').alignment = { horizontal: 'center' };
-
-    sheet.mergeCells('A4:J4');
-    sheet.getCell('A4').value = sem;
-    sheet.getCell('A4').font = { bold: true, size: 12 };
-    sheet.getCell('A4').alignment = { horizontal: 'center' };
-
-    if (logoBuffer) {
-      try {
-        const imageId = workbook.addImage({ buffer: logoBuffer, extension: 'jpg' });
-        sheet.addImage(imageId, { tl: { col: 0.5, row: 0.1 }, ext: { width: 48, height: 48 } });
-        sheet.addImage(imageId, { tl: { col: 9.5, row: 0.1 }, ext: { width: 48, height: 48 } });
-      } catch (e) {
-        console.error('Failed to embed logo in Excel:', e);
-      }
+    let headerRowNum = 5;
+    if (session) {
+      excelMergeHeader(sheet, 5, colCount, session, { font: { italic: true, size: 11 } });
+      headerRowNum = 6;
     }
 
-    const headerRow = sheet.getRow(6);
-    ['S/N', 'Reg No', 'Student Name', 'Course Code', 'Course Title', 'Credit Unit', 'Score', 'Grade', 'Grade Point'].forEach((headerText, idx) => {
-      const cell = headerRow.getCell(idx + 1);
-      cell.value = headerText;
-      cell.font = { bold: true, color: { argb: 'FFF3F1E9' } };
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0B4432' } };
+    excelHeaderRow(sheet, headerRowNum, headers);
+
+    const dataRowsForWidth = [];
+    rows.forEach((r, idx) => {
+      const gi = gradeInfo(r.score);
+      const excelRow = sheet.getRow(headerRowNum + 1 + idx);
+      const scoreVal = r.score === '' ? null : parseFloat(r.score);
+      const values = [idx + 1, r.regNo, r.name, r.code, r.title, r.unit, scoreVal, gi.grade || '', gi.point === null ? '' : gi.point];
+      values.forEach((val, colIdx) => { excelRow.getCell(colIdx + 1).value = val; });
+      excelStyleDataRow(excelRow, colCount);
+      dataRowsForWidth.push(values);
     });
 
-    data.forEach((row, idx) => {
-      const excelRow = sheet.getRow(7 + idx);
-      Object.values(row).forEach((val, colIdx) => {
-        excelRow.getCell(colIdx + 1).value = val;
-      });
-    });
+    excelSetWidths(sheet, excelContentWidths(headers, dataRowsForWidth));
+    excelSetRowHeights(sheet, headerRowNum, rows.length, 18, 16);
+  });
 
-    sheet.columns.forEach(col => {
-      col.width = 18;
-    });
+  const logoBuffer = await getLogoBuffer();
+  workbook.worksheets.forEach(sheet => {
+    excelAddLogosToSheet(workbook, sheet, colCount, logoBuffer);
   });
 
   const buffer = await workbook.xlsx.writeBuffer();
@@ -1334,55 +1950,39 @@ async function exportYearExcel(yearKey) {
 
 async function exportTranscriptExcel() {
   if (!lastTranscript) return;
-  const data = lastTranscript.flatRows.map(r => ({ 'Year': r.Year, 'Semester': r.Semester, 'Reg No': r.RegNo, 'Name': r.Name, 'Code': r.Code, 'Title': r.Title, 'Unit': r.Unit, 'Score': r.Score, 'Grade': r.Grade, 'Point': r.Point }));
+  const sessionMap = {};
+  const sessions = state.academicSessions || {};
+  Object.keys(sessions).forEach(yk => {
+    if (sessions[yk]) sessionMap[yk] = sessions[yk];
+  });
 
+  const headers = ['Year', 'Semester', 'Reg No', 'Name', 'Session', 'Code', 'Title', 'Unit', 'Score', 'Grade', 'Point'];
+  const colCount = headers.length;
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet('Transcript');
 
-  sheet.mergeCells('A1:J1');
-  sheet.getCell('A1').value = META.university;
-  sheet.getCell('A1').font = { bold: true, size: 14 };
-  sheet.getCell('A1').alignment = { horizontal: 'center' };
+  excelMergeHeader(sheet, 1, colCount, META.university, { font: { bold: true, size: 14 } });
+  excelMergeHeader(sheet, 2, colCount, state.meta.school);
+  excelMergeHeader(sheet, 3, colCount, state.meta.department);
+  excelMergeHeader(sheet, 4, colCount, 'STUDENT TRANSCRIPT GENERATOR');
 
-  sheet.mergeCells('A2:J2');
-  sheet.getCell('A2').value = state.meta.school;
-  sheet.getCell('A2').font = { bold: true, size: 12 };
-  sheet.getCell('A2').alignment = { horizontal: 'center' };
+  const headerRowNum = 5;
+  await excelAddLogos(workbook, sheet, colCount);
+  excelHeaderRow(sheet, headerRowNum, headers);
 
-  sheet.mergeCells('A3:J3');
-  sheet.getCell('A3').value = state.meta.department;
-  sheet.getCell('A3').font = { bold: true, size: 12 };
-  sheet.getCell('A3').alignment = { horizontal: 'center' };
-
-  const logoBuffer = await getLogoBuffer();
-  if (logoBuffer) {
-    try {
-      const imageId = workbook.addImage({ buffer: logoBuffer, extension: 'jpg' });
-      sheet.addImage(imageId, { tl: { col: 0.5, row: 0.1 }, ext: { width: 48, height: 48 } });
-      sheet.addImage(imageId, { tl: { col: 10.5, row: 0.1 }, ext: { width: 48, height: 48 } });
-    } catch (e) {
-      console.error('Failed to embed logo in Excel:', e);
-    }
-  }
-
-  const headers = ['Year', 'Semester', 'Reg No', 'Name', 'Code', 'Title', 'Unit', 'Score', 'Grade', 'Point'];
-  const headerRow = sheet.getRow(5);
-  headers.forEach((header, idx) => {
-    headerRow.getCell(idx + 1).value = header;
-    headerRow.getCell(idx + 1).font = { bold: true, color: { argb: 'FFF3F1E9' } };
-    headerRow.getCell(idx + 1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0B4432' } };
+  const dataRowsForWidth = [];
+  lastTranscript.flatRows.forEach((r, idx) => {
+    const session = sessionMap[r.Year] || '';
+    const excelRow = sheet.getRow(headerRowNum + 1 + idx);
+    const scoreVal = r.Score === '' ? null : parseFloat(r.Score);
+    const values = [r.Year, r.Semester, r.RegNo, r.Name, session, r.Code, r.Title, r.Unit, scoreVal, r.Grade || '', r.Point === null ? '' : r.Point];
+    values.forEach((val, colIdx) => { excelRow.getCell(colIdx + 1).value = val; });
+    excelStyleDataRow(excelRow, colCount);
+    dataRowsForWidth.push(values);
   });
 
-  data.forEach((row, idx) => {
-    const excelRow = sheet.getRow(6 + idx);
-    Object.values(row).forEach((val, colIdx) => {
-      excelRow.getCell(colIdx + 1).value = val;
-    });
-  });
-
-  sheet.columns.forEach(col => {
-    col.width = 18;
-  });
+  excelSetWidths(sheet, excelContentWidths(headers, dataRowsForWidth));
+  excelSetRowHeights(sheet, headerRowNum, lastTranscript.flatRows.length, 18, 16);
 
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -1427,39 +2027,6 @@ function printSemester(yearKey, sem) {
   }
   window.onafterprint = restore;
   setTimeout(() => window.print(), 300);
-}
-
-/* ===================== JSON SAVE / LOAD (persistence) ===================== */
-function exportAllJSON() {
-  const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = 'futo-public-health-results.json';
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-function importAllJSON(event) {
-  const file = event.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = e => {
-    try {
-      const loaded = JSON.parse(e.target.result);
-      if (loaded && loaded.years) {
-        state = loaded;
-        saveToLocalStorage();
-        render();
-        alert('Data loaded successfully.');
-      } else {
-        alert('This file does not look like a valid export from this app.');
-      }
-    } catch (err) {
-      alert('Could not read that file: ' + err.message);
-    }
-  };
-  reader.readAsText(file);
-  event.target.value = '';
 }
 
 async function loadSettings() {
@@ -1609,6 +2176,17 @@ function renderSettingsView() {
         <span id="passcodeStatus" class="settings-status"></span>
       </div>
     </div>
+
+    <div class="settings-divider"></div>
+
+    <h3>Help &amp; legal</h3>
+    <div class="settings-form">
+      <div class="profile-actions-row">
+        <a href="docs.html" class="btn secondary">Documentation</a>
+        <a href="terms.html" class="btn secondary">Terms &amp; Conditions</a>
+        <a href="privacy.html" class="btn secondary">Privacy Policy</a>
+      </div>
+    </div>
   `;
 }
 
@@ -1685,8 +2263,21 @@ async function savePasscode() {
 function renderProfileView() {
   const fullName = (currentUser?.user_metadata?.full_name || '').trim();
   const email = currentUser?.email || 'Not available';
+  const avatar = generateInitialsAvatar(fullName, email, 80);
+  const displayName = fullName || email;
+  const slug = state.meta.portalSlug || '';
+  const portalUrl = slug ? `${window.location.origin}/students-results/${encodeURIComponent(slug)}` : '';
+
   return renderLetterhead('PROFILE') + `
     <div class="profile-card">
+      <div class="profile-header">
+        ${avatar}
+        <div>
+          <div class="profile-name">${escHtml(displayName)}</div>
+          <div class="profile-email">${escHtml(email)}</div>
+        </div>
+      </div>
+
       <div class="profile-row">
         <div class="profile-label">Full name</div>
         <div class="profile-value">${escHtml(fullName) || 'Not set'}</div>
@@ -1695,13 +2286,98 @@ function renderProfileView() {
         <div class="profile-label">Email</div>
         <div class="profile-value">${escHtml(email)}</div>
       </div>
+      <div class="profile-row">
+        <div class="profile-label">Student passphrase set?</div>
+        <div class="profile-value">${state.meta.passcodeSet ? 'Yes' : 'No'}</div>
+      </div>
     </div>
 
-    <div class="profile-actions">
+    <div class="profile-card">
+      <h3 style="margin:0 0 14px 0;font-size:15px">Student Results Portal</h3>
+      ${portalUrl ? `
+        <div class="profile-row">
+          <div class="profile-label">Shareable link</div>
+          <div class="profile-value">
+            <a href="${escAttr(portalUrl)}" target="_blank" rel="noopener noreferrer">${escHtml(portalUrl)}</a>
+          </div>
+        </div>
+        <div class="profile-actions-row">
+          <button class="btn secondary" onclick="copyPortalLinkFromProfile()">Copy Link</button>
+          <a href="${escAttr(portalUrl)}" target="_blank" rel="noopener noreferrer" class="btn gold">Visit Portal</a>
+        </div>
+      ` : `
+        <div class="profile-row">
+          <div class="profile-label">Shareable link</div>
+          <div class="profile-value" style="color:var(--muted)">Not configured — set a portal slug in Settings.</div>
+        </div>
+      `}
+    </div>
+
+    <div class="profile-card">
+      <h3 style="margin:0 0 14px 0;font-size:15px">Student Passphrase</h3>
+      <p class="settings-note">For security, passphrases can't be displayed once set. If you or your students have
+        forgotten it, set a new one here — this immediately replaces the old one for everyone.</p>
+      <div class="profile-actions-row">
+        <button class="btn gold" onclick="resetPasscodeFromProfile()">Set a new passphrase</button>
+      </div>
+    </div>
+
+      <div class="profile-actions">
       <button class="btn secondary" onclick="signOut()">Log out</button>
       <button class="btn danger" onclick="deleteAccount()">Delete my account and data</button>
     </div>
+
+    <div class="profile-card">
+      <h3 style="margin:0 0 14px 0;font-size:15px">Help</h3>
+      <div class="profile-actions-row">
+        <a href="docs.html" class="btn secondary">Documentation</a>
+        <a href="terms.html" class="btn secondary">Terms &amp; Conditions</a>
+        <a href="privacy.html" class="btn secondary">Privacy Policy</a>
+      </div>
+    </div>
   `;
+}
+
+async function copyPortalLinkFromProfile() {
+  const slug = state.meta.portalSlug || '';
+  const url = slug ? `${window.location.origin}/students-results/${encodeURIComponent(slug)}` : '';
+  if (!url) {
+    alert('Configure a portal slug in Settings first.');
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    alert('Link copied to clipboard.');
+  } catch (err) {
+    const ta = document.createElement('textarea');
+    ta.value = url;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    alert('Link copied to clipboard.');
+  }
+}
+
+async function resetPasscodeFromProfile() {
+  const newPass = prompt('Enter a new passphrase (minimum 6 characters). This immediately replaces the old one for all students.');
+  if (!newPass) return;
+  if (newPass.length < 6) {
+    alert('Passphrase must be at least 6 characters.');
+    return;
+  }
+  if (!confirm('Set this as the new passphrase? This immediately replaces the old one for everyone.')) return;
+  try {
+    await apiFetch('/api/settings/passcode', {
+      method: 'PUT',
+      body: JSON.stringify({ passcode: newPass })
+    });
+    state.meta.passcodeSet = true;
+    alert('Passphrase updated.');
+    render();
+  } catch (err) {
+    alert('Failed to update passphrase: ' + err.message);
+  }
 }
 
 async function deleteAccount() {
@@ -1717,6 +2393,24 @@ async function deleteAccount() {
   } catch (err) {
     alert('Account deletion failed: ' + err.message);
   }
+}
+
+/* ===================== AVATAR ===================== */
+function generateInitialsAvatar(name, email, sizePx) {
+  const fullName = (name || '').trim();
+  let initials;
+  if (fullName) {
+    const words = fullName.split(/\s+/).filter(Boolean);
+    if (words.length === 1) {
+      initials = words[0][0].toUpperCase();
+    } else {
+      initials = words[0][0].toUpperCase() + words[words.length - 1][0].toUpperCase();
+    }
+  } else {
+    initials = ((email || '?')[0] || '?').toUpperCase();
+  }
+  const fontSize = Math.round(sizePx * 0.42);
+  return `<div class="avatar" style="width:${sizePx}px;height:${sizePx}px;font-size:${fontSize}px" title="${escAttr(fullName || email || '')}">${escHtml(initials)}</div>`;
 }
 
 /* ===================== UTIL ===================== */

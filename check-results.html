@@ -60,10 +60,20 @@
             <div class="hint">Registration Number</div>
             <div class="value" id="resultRegNo"></div>
           </div>
+          <div>
+            <div class="hint">Student Name</div>
+            <div class="value" id="resultStudentName"></div>
+          </div>
+          <div class="year-filter-wrap" style="display:none">
+            <label for="yearFilter">Filter by Year</label>
+            <select id="yearFilter">
+              <option value="all">All Years</option>
+            </select>
+          </div>
         </div>
         <div id="resultBlocks"></div>
-        <div class="cgpa-banner">
-          <div>Cumulative Grade Point Average (CGPA)</div>
+        <div class="cgpa-banner" id="cgpaBanner">
+          <div id="cgpaLabel">Cumulative Grade Point Average (CGPA)</div>
           <div class="big" id="resultCgpa"></div>
         </div>
         <div class="result-actions">

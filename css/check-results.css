@@ -181,6 +181,36 @@ body {
   gap: 10px;
 }
 
+.year-filter-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 180px;
+}
+
+.year-filter-wrap label {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .3px;
+}
+
+.year-filter-wrap select {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: 'Inter', sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.year-filter-wrap select:focus {
+  outline: none;
+  border-color: var(--gold);
+}
+
 .result-header .hint {
   font-size: 12px;
   color: var(--muted);
@@ -291,7 +321,12 @@ body {
   }
 
   .check-form,
-  .result-actions {
+  .result-actions,
+  .year-filter-wrap {
+    display: none !important;
+  }
+
+  .t-year-block.hidden-print {
     display: none !important;
   }
 
@@ -345,4 +380,19 @@ body {
   .check-result table {
     min-width: 520px;
   }
+}
+
+/* ---------- avatar ---------- */
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--green-deep);
+  color: var(--gold);
+  font-family: 'Inter', sans-serif;
+  font-weight: 600;
+  line-height: 1;
+  user-select: none;
+  flex-shrink: 0;
 }

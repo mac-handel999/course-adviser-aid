@@ -231,3 +231,87 @@ drop trigger if exists academic_sessions_set_updated_at on public.academic_sessi
 create trigger academic_sessions_set_updated_at
   before update on public.academic_sessions
   for each row execute function public.set_updated_at();
+
+-- Per-course records for result entry.  The results table keeps its
+-- course_code / course_title / credit_unit columns as a denormalized
+-- copy on every row (useful for historical audit and so nothing breaks
+-- that reads row.course_code directly).  The courses table is the new
+-- source of truth for course metadata; results rows link to it via
+-- course_id (nullable so existing rows are not broken before backfill).
+create table if not exists public.courses (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  year text not null,
+  semester text not null,
+  course_code text not null,
+  course_title text,
+  credit_unit numeric,
+  created_at timestamptz default now(),
+  unique (user_id, year, semester, course_code)
+);
+
+alter table public.courses enable row level security;
+
+-- Primary enforcement is in the Express API routes (server/routes/courses.js),
+-- because the API uses the Supabase service role key which bypasses RLS.
+-- These RLS policies are a secondary safeguard in case the anon key is ever
+-- used to query this table directly, bypassing the API.
+
+drop policy if exists "Authenticated users can read own courses" on public.courses;
+drop policy if exists "Authenticated users can insert own courses" on public.courses;
+drop policy if exists "Authenticated users can update own courses" on public.courses;
+drop policy if exists "Authenticated users can delete own courses" on public.courses;
+
+create policy "Authenticated users can read own courses"
+  on public.courses for select
+  to authenticated
+  using (user_id = auth.uid());
+
+create policy "Authenticated users can insert own courses"
+  on public.courses for insert
+  to authenticated
+  with check (user_id = auth.uid());
+
+create policy "Authenticated users can update own courses"
+  on public.courses for update
+  to authenticated
+  using (user_id = auth.uid());
+
+create policy "Authenticated users can delete own courses"
+  on public.courses for delete
+  to authenticated
+  using (user_id = auth.uid());
+
+-- Unique constraint on (course_id, reg_no) prevents duplicate student
+-- entries within the same course.  Added after the migration scripts
+-- have verified no existing violations exist.  The constraint name
+-- follows the snake_case convention used elsewhere in this schema.
+-- NOTE: Apply this constraint AFTER running scripts/migrate-courses.js
+-- and verifying no (course_id, reg_no) duplicates exist in your data.
+-- If any violations are found, resolve them in the SQL editor before
+-- adding this constraint.
+alter table public.results add column if not exists course_id uuid references public.courses(id) on delete set null;
+
+-- Add a unique constraint on (course_id, reg_no) to prevent duplicate
+-- student entries within the same course.  Verifies no violations exist
+-- first — if any are found, the DO block raises an exception (not silent)
+-- so the adviser can resolve them before re-running.
+do $$
+declare
+  dup_count int;
+begin
+  select count(*) into dup_count
+  from (
+    select 1 from public.results
+    where course_id is not null and reg_no is not null
+    group by course_id, reg_no
+    having count(*) > 1
+  ) d;
+
+  if dup_count > 0 then
+    raise exception 'Found % duplicate (course_id, reg_no) pair(s) in results. Resolve these before adding the unique constraint.', dup_count;
+  else
+    alter table public.results drop constraint if exists results_course_reg_unique;
+    alter table public.results add constraint results_course_reg_unique unique (course_id, reg_no);
+  end if;
+end $$;

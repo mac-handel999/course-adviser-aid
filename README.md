@@ -130,8 +130,7 @@ app already has CORS enabled for this case.
   `DELETE /api/results/:id`. On sign-in, the app loads all rows via
   `GET /api/results`.
 - **Guest (not signed in, or Supabase not configured)**: results stay in
-  memory for that browser tab only. Use "Save data" / "Load data" in the
-  app for a `.json` backup.
+  memory for that browser tab only.
 
 ## Notes / things to revisit
 

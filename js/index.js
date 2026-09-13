@@ -334,38 +334,6 @@
             XLSX.writeFile(wb, `Transcript - ${lastTranscript.regNo}.xlsx`);
         }
 
-        /* ===================== JSON SAVE / LOAD (persistence) ===================== */
-        function exportAllJSON() {
-            const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url; a.download = 'futo-public-health-results.json';
-            a.click();
-            URL.revokeObjectURL(url);
-        }
-
-        function importAllJSON(event) {
-            const file = event.target.files[0];
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = e => {
-                try {
-                    const loaded = JSON.parse(e.target.result);
-                    if (loaded && loaded.years) {
-                        state = loaded;
-                        render();
-                        alert('Data loaded successfully.');
-                    } else {
-                        alert('This file does not look like a valid export from this app.');
-                    }
-                } catch (err) {
-                    alert('Could not read that file: ' + err.message);
-                }
-            };
-            reader.readAsText(file);
-            event.target.value = '';
-        }
-
         /* ===================== UTIL ===================== */
         function escAttr(v) { return (v === undefined || v === null) ? '' : String(v).replace(/"/g, '&quot;'); }
         function escHtml(v) { return (v === undefined || v === null) ? '' : String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }

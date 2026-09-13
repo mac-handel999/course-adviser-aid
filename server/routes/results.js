@@ -47,6 +47,25 @@ router.post('/', async (req, res) => {
       }
     }
 
+    // Server-side duplicate check: (course_id, reg_no) scoped to one course
+    if (payload.course_id && payload.reg_no) {
+      const { data: existing, error: dupCheckError } = await supabaseAdmin
+        .from('results')
+        .select('id')
+        .eq('course_id', payload.course_id)
+        .eq('reg_no', payload.reg_no)
+        .eq('created_by', req.user.id)
+        .maybeSingle();
+
+      if (dupCheckError) {
+        console.error('Duplicate check error:', dupCheckError.message);
+      }
+
+      if (existing) {
+        return res.status(409).json({ error: `A result already exists for reg no ${payload.reg_no} in this course.` });
+      }
+    }
+
     const { data, error } = await supabaseAdmin
       .from('results')
       .insert(payload)

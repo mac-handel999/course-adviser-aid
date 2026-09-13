@@ -9,12 +9,12 @@
   "icons": [
     {
       "src": "/assets/advyza-favicon.png",
-      "sizes": "192x192",
+      "sizes": "64x64",
       "type": "image/png"
     },
     {
       "src": "/assets/advyza-favicon.png",
-      "sizes": "512x512",
+      "sizes": "64x64",
       "type": "image/png"
     }
   ]

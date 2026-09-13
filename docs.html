@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Documentation — Advyza</title>
+  <link rel="icon" type="image/png" href="assets/advyza-favicon.png">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=Inter:wght@400;500;600;700&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/landing.css">
+</head>
+
+<body>
+  <header class="site-header">
+    <div class="wrap">
+      <a class="brand-mark" href="index.html">
+        <img src="assets/advyza-logo.svg" alt="" class="crest-img">
+        <span class="brand-text"><span>Advyza</span><small>Results &amp; transcripts for course advisers</small></span>
+      </a>
+      <nav class="main-nav" id="mainNav">
+        <a href="index.html">Home</a>
+        <a href="docs.html" class="active">Documentation</a>
+        <a href="terms.html">Terms</a>
+        <a href="privacy.html">Privacy</a>
+      </nav>
+      <div class="nav-actions">
+        <button class="mobile-toggle" id="mobileToggle" aria-label="Toggle menu">&#9776;</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="doc-wrap">
+    <div class="doc-content">
+      <h1>Advyza — User Guide</h1>
+
+      <h2>Creating an account</h2>
+      <p>Sign in with your institutional email address. If you do not have an account yet, click
+        <strong>“Create one”</strong> on the sign-in page and enter your email, a password, and your full
+        name. Your full name is stored in your profile and is used to generate your initials avatar.
+        If you created an account before the full-name field existed, the avatar will fall back to the
+        first letter of your email.</p>
+
+      <h2>Setting up your department</h2>
+      <p>In the Settings view, fill in:</p>
+      <ul>
+        <li><strong>Faculty / School</strong> — e.g. “School of Health Technology (SOHT)”</li>
+        <li><strong>Department</strong> — e.g. “Department of Public Health”</li>
+        <li><strong>Portal slug</strong> — a short, unique identifier (lowercase letters, numbers, and
+          hyphens only) that becomes the public URL students use to check their results.</li>
+        <li><strong>Class Set</strong> — the admission cohort session (e.g. “2024/2025”). This
+          auto-populates academic session labels for each year.</li>
+      </ul>
+      <p>These details appear on every official document’s letterhead — exported Excel files, printed
+        PDFs, transcripts, and the student portal.</p>
+
+      <h2>Configuring credit load</h2>
+      <p>In the Settings view, under “Credit load,” set the expected total credit units for each year
+        and semester (e.g. Year 1 Harmattan: 24 units). The Cumulative Result Sheet will then show each
+        student’s completion percentage next to their GPA.</p>
+
+      <h2>Launching a course and entering results</h2>
+      <p>Each semester shows a list of launched courses. Click <strong>“Launch Course”</strong>, enter
+        the course code, title, and credit unit, then add students one by one with <strong>“+ Add student
+        row”</strong> or <strong>import from file</strong> (CSV/XLSX). Scores are graded automatically
+        (5-point scale) as you type.</p>
+      <p>When you are inside a course roster, only rows belonging to that course are shown. Imported rows
+        are automatically linked to the open course.</p>
+
+      <h2>Cumulative Result Sheet</h2>
+      <p>Select any year and semester in the Cumulative view to see a table of all students and all
+        courses side by side, with grades, points, and pass/fail remarks. Click <strong>Export to
+        Excel</strong> or <strong>Print / PDF</strong>.</p>
+
+      <h2>Generating transcripts</h2>
+      <p>In the Transcript Generator, enter a student’s registration number and click
+        <strong>Generate</strong>. The full academic record across all years and semesters is compiled,
+        including semester GPAs and the cumulative CGPA. You can then print or export to Excel.</p>
+
+      <h2>Sharing the Student Results Portal</h2>
+      <p>Your portal slug (set in Settings) creates a public URL:
+        <code>https://[your-domain]/students-results/[slug]</code>. Students visit this link, enter the
+        passcode you set, then enter their registration number to view their results. From the Profile
+        page you can copy the link or visit the portal directly.</p>
+      <p><strong>Passcodes:</strong> The passphrase is bcrypt-hashed and never stored in plaintext. It
+        cannot be displayed or recovered. If forgotten, set a new one — this immediately replaces the
+        old one for all students.</p>
+
+      <h2>Exporting to Excel and printing to PDF</h2>
+      <p>Every sheet — per-course roster, whole-semester/year export, Cumulative Result Sheet, and
+        Transcript Generator — can be exported to a properly formatted Excel file with centered cells,
+        content-based column widths, and a letterhead that includes the academic session. Use
+        <strong>Print / PDF</strong> to save a paper-ready PDF; all buttons and navigation are hidden
+        automatically in the printed output.</p>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <a class="brand-mark" href="index.html">
+        <img src="assets/advyza-logo.svg" alt="" class="crest-img">
+        <span class="brand-text"><span>Advyza</span><small>Results &amp; transcripts for course advisers</small></span>
+      </a>
+      <div class="cols">
+        <div>
+          <h5>PORTAL</h5>
+          <a href="index.html">Home</a>
+          <a href="docs.html">Documentation</a>
+          <a href="terms.html">Terms</a>
+          <a href="privacy.html">Privacy</a>
+        </div>
+        <div>
+          <h5>LEGAL</h5>
+          <a href="terms.html">Terms &amp; Conditions</a>
+          <a href="privacy.html">Data / Privacy</a>
+        </div>
+      </div>
+    </div>
+    <div class="bottom wrap">
+      <span id="year"></span> Advyza. Internal results tool.
+    </div>
+  </footer>
+
+  <script src="js/landing.js"></script>
+</body>
+
+</html>
