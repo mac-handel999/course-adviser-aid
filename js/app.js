@@ -1885,7 +1885,7 @@ async function signOut() {
 let dashboardState = { year: 'all' };
 let dashboardCharts = {};
 
-async function renderDashboardView() {
+function renderDashboardView() {
   return renderDashboardContent();
 }
 
