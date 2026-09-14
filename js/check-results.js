@@ -122,8 +122,8 @@ function buildSemesterHtml(rows, yearKey, sem, creditLoad, academicSessions) {
 
   return `
     <div class="t-sem-label">${sem}${sessionPart}</div>
-    <table><thead><tr><th>Code</th><th>Course Title</th><th>Unit</th><th>Score</th><th>Grade</th><th>Point</th></tr></thead>
-    <tbody>${tableRows}</tbody></table>
+    <div class="table-scroll"><table><thead><tr><th>Code</th><th>Course Title</th><th>Unit</th><th>Score</th><th>Grade</th><th>Point</th></tr></thead>
+    <tbody>${tableRows}</tbody></table></div>
     <div class="t-totals">${semTotalsHtml}</div>
   `;
 }
