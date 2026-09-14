@@ -143,6 +143,21 @@ router.post('/', async (req, res) => {
    Delete a course AND all its associated results rows.
    Ownership-checked: returns 404 if the course doesn't belong to req.user.id.
    Returns { deletedResults: N } indicating how many results rows were removed. */
+async function supabaseDeleteWithRetry(builderFn, maxRetries = 3) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const result = await builderFn();
+    if (!result.error) return result;
+    const msg = result.error.message || '';
+    if (msg.includes('fetch failed') && attempt < maxRetries) {
+      console.warn(`Supabase DELETE transient error (attempt ${attempt + 1}/${maxRetries}), retrying...`);
+      await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+      continue;
+    }
+    return result;
+  }
+  return { error: { message: 'Max retries reached' } };
+}
+
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -164,11 +179,13 @@ router.delete('/:id', async (req, res) => {
     }
 
     // Delete all results rows linked to this course
-    const { count: deletedResults, error: resultsDeleteError } = await supabaseAdmin
-      .from('results')
-      .delete()
-      .eq('course_id', id)
-      .eq('created_by', req.user.id);
+    const { count: deletedResults, error: resultsDeleteError } = await supabaseDeleteWithRetry(() =>
+      supabaseAdmin
+        .from('results')
+        .delete({ count: 'exact' })
+        .eq('course_id', id)
+        .eq('created_by', req.user.id)
+    );
 
     if (resultsDeleteError) {
       console.error('Courses DELETE results error:', resultsDeleteError.message);
@@ -176,11 +193,13 @@ router.delete('/:id', async (req, res) => {
     }
 
     // Delete the course itself
-    const { error: courseDeleteError } = await supabaseAdmin
-      .from('courses')
-      .delete()
-      .eq('id', id)
-      .eq('user_id', req.user.id);
+    const { error: courseDeleteError } = await supabaseDeleteWithRetry(() =>
+      supabaseAdmin
+        .from('courses')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', req.user.id)
+    );
 
     if (courseDeleteError) {
       console.error('Courses DELETE course error:', courseDeleteError.message);

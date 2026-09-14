@@ -1419,6 +1419,9 @@ function printCourse(courseId) {
   let printWindow = window.open('', '_blank', 'width=900,height=700');
   if (!printWindow) return;
 
+  const base = new URL('.', window.location.href).href.replace(/\/$/, '');
+  const logoUrl = base + '/assets/futo-logo.jpeg';
+
   printWindow.document.write(`
     <html>
       <head>
@@ -1440,7 +1443,7 @@ function printCourse(courseId) {
       </head>
       <body>
         <div class="letterhead-print">
-          <img src="assets/futo-logo.jpeg" class="logo" alt="FUTO Logo">
+          <img src="${logoUrl}" class="logo" alt="FUTO Logo">
           <div class="center">
             <h2>FEDERAL UNIVERSITY OF TECHNOLOGY OWERRI</h2>
             <p>${escHtml(state.meta.school)}</p>
@@ -1448,9 +1451,8 @@ function printCourse(courseId) {
             <div class="title-row">${escHtml(`${course.course_code} — ${course.course_title || ''} — ${course.yearKey}`)}</div>
             ${session ? `<p style="font-size:12px;color:#6B7168;font-style:italic">${escHtml(session)} SESSION</p>` : ''}
           </div>
-          <img src="assets/futo-logo.jpeg" class="logo" alt="FUTO Logo">
+          <img src="${logoUrl}" class="logo" alt="FUTO Logo">
         </div>
-        <div class="watermark-print">UNOFFICIAL / STUDENT COPY — FOR REFERENCE ONLY</div>
         <table>
           <thead>
             <tr>
@@ -1473,8 +1475,41 @@ function printCourse(courseId) {
 
   printWindow.document.close();
   printWindow.focus();
-  printWindow.print();
-  printWindow.close();
+
+  const images = Array.from(printWindow.document.images);
+  if (images.length > 0) {
+    let loaded = 0;
+    const total = images.length;
+    images.forEach(img => {
+      if (img.complete) {
+        loaded++;
+        if (loaded === total) {
+          printWindow.print();
+          printWindow.close();
+        }
+      } else {
+        img.onload = () => {
+          loaded++;
+          if (loaded === total) {
+            printWindow.print();
+            printWindow.close();
+          }
+        };
+        img.onerror = () => {
+          loaded++;
+          if (loaded === total) {
+            printWindow.print();
+            printWindow.close();
+          }
+        };
+      }
+    });
+  } else {
+    setTimeout(() => {
+      printWindow.print();
+      printWindow.close();
+    }, 500);
+  }
 }
 
 function findCourseById(courseId) {

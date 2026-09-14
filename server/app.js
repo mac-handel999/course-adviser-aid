@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 const resultsRouter = require('./routes/results');
 const accountRouter = require('./routes/account');
 const settingsRouter = require('./routes/settings');
@@ -13,6 +14,7 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
+app.use(express.static(path.join(__dirname, '..')));
 
 app.use('/api/results', resultsRouter);
 app.use('/api/account', accountRouter);
