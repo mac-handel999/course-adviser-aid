@@ -95,6 +95,7 @@ router.post('/', async (req, res) => {
 
       if (dupCheckError) {
         console.error('Duplicate check error:', dupCheckError.message);
+        return res.status(500).json({ error: 'Failed to verify existing results.' });
       }
 
       if (existing) {
@@ -109,6 +110,10 @@ router.post('/', async (req, res) => {
       .single();
 
     if (error) {
+      if (error.code === '23505') {
+        console.error('Supabase insert error (duplicate):', error.message);
+        return res.status(409).json({ error: `A result already exists for reg no ${payload.reg_no} in this course.` });
+      }
       console.error('Supabase insert error:', error.message);
       return res.status(500).json({ error: 'Failed to save result' });
     }
