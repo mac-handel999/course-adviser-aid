@@ -36,6 +36,16 @@ router.post('/', async (req, res) => {
       created_by: req.user.id
     };
 
+    // Sanitize empty strings to null for numeric fields.  PostgreSQL
+    // rejects "" for numeric columns with error 22P02 ("invalid input
+    // syntax for type numeric"), which surfaces as a 500.  The client
+    // *should* send null already, but this is a defensive guard so a
+    // stray "" never crashes the insert.
+    const numericFields = ['credit_unit', 'score', 'test_score', 'lab_score', 'exam_score'];
+    numericFields.forEach(f => {
+      if (payload[f] === '') payload[f] = null;
+    });
+
     if (payload.reg_no !== undefined && payload.reg_no !== null && payload.reg_no !== '') {
       const regNo = String(payload.reg_no).trim();
       if (!/^\d{11}$/.test(regNo)) {
@@ -55,7 +65,7 @@ router.post('/', async (req, res) => {
     const componentFields = ['test_score', 'lab_score', 'exam_score'];
     let componentSum = 0;
     let hasAnyComponent = false;
-    componentFields.forEach(f => {
+    for (const f of componentFields) {
       if (payload[f] !== undefined && payload[f] !== null && payload[f] !== '') {
         const n = parseFloat(payload[f]);
         if (isNaN(n) || n < 0) {
@@ -64,7 +74,7 @@ router.post('/', async (req, res) => {
         componentSum += n;
         hasAnyComponent = true;
       }
-    });
+    }
 
     if (hasAnyComponent && payload.score !== undefined && payload.score !== null && payload.score !== '') {
       const scoreNum = parseFloat(payload.score);
@@ -114,6 +124,12 @@ router.put('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const payload = req.body;
+
+    // Sanitize empty strings to null for numeric fields (same guard as POST)
+    const numericFields = ['credit_unit', 'score', 'test_score', 'lab_score', 'exam_score'];
+    numericFields.forEach(f => {
+      if (payload[f] === '') payload[f] = null;
+    });
 
     if (payload.reg_no !== undefined && payload.reg_no !== null && payload.reg_no !== '') {
       const regNo = String(payload.reg_no).trim();

@@ -1696,10 +1696,17 @@ async function replayOfflineQueue() {
 }
 
 async function saveRowRemote(yearKey, sem, idx) {
-  if (!currentUser || !accessToken) return;
-  const row = state.years[yearKey][sem][idx];
-  if (!row) return;
-     if (!row.regNo && !row.name && !row.code && !row.title && !row.unit && !row.score && !row.test_score && !row.lab_score && !row.exam_score) return;
+   if (!currentUser || !accessToken) return;
+   const row = state.years[yearKey][sem][idx];
+   if (!row) return;
+      if (!row.regNo && !row.name && !row.code && !row.title && !row.unit && !row.score && !row.test_score && !row.lab_score && !row.exam_score) return;
+
+  // Skip saving while the reg_no is still being typed (partial entry).
+  // The server enforces 11-digit format; sending a partial value only
+  // produces an avoidable 400 round-trip.  Once the user finishes typing,
+  // the next debounced save will carry the complete 11-digit value.
+  const regNoTrimmed = (row.regNo || '').trim();
+  if (regNoTrimmed && regNoTrimmed.length !== 11) return;
 
    // Client-side duplicate check: scoped to the currently-open course only.
    // Compare by object identity (r !== row) so the row being saved is never
@@ -1726,7 +1733,7 @@ async function saveRowRemote(yearKey, sem, idx) {
     course_code: row.code || null,
     course_title: row.title || null,
     credit_unit: row.unit === '' ? null : parseFloat(row.unit),
-    score: row.score === '' ? null : parseFloat(row.score),
+    score: row.score === '' ? null : (isNaN(parseFloat(row.score)) ? null : parseFloat(row.score)),
     test_score: row.test_score === '' ? null : (row.test_score !== undefined && row.test_score !== null ? parseFloat(row.test_score) : null),
     lab_score: row.lab_score === '' ? null : (row.lab_score !== undefined && row.lab_score !== null ? parseFloat(row.lab_score) : null),
     exam_score: row.exam_score === '' ? null : (row.exam_score !== undefined && row.exam_score !== null ? parseFloat(row.exam_score) : null),
