@@ -60,6 +60,7 @@ function buildNav() {
   const accountNav = document.getElementById('accountNavGroup');
   if (accountNav) {
     let accountHtml = '<div class="nav-label">ACCOUNT</div>';
+    accountHtml += `<button class="nav-btn dashboard" data-view="Dashboard" onclick="switchView('Dashboard')">Dashboard</button>`;
     accountHtml += `<button class="nav-btn transcript" data-view="Transcript" onclick="switchView('Transcript')">Transcript generator</button>`;
     accountHtml += `<button class="nav-btn cumulative" data-view="Cumulative" onclick="switchView('Cumulative')">Cumulative sheet</button>`;
     accountHtml += `<button class="nav-btn profile" data-view="Profile" onclick="switchView('Profile')">Profile</button>`;
@@ -111,6 +112,9 @@ function render() {
   if (state.currentView === 'Transcript') {
     container.innerHTML = renderTranscriptView();
     attachTranscriptHandlers();
+  } else if (state.currentView === 'Dashboard') {
+    container.innerHTML = renderDashboardView();
+    attachDashboardHandlers();
   } else {
     container.innerHTML = renderYearView(state.currentView);
   }
@@ -549,8 +553,6 @@ function renderSemesterBlock(yearKey, sem) {
     return 0;
   });
 
-  const summary = computeSummary(rows, yearKey, sem);
-
   // Check if a course is currently open for this semester
   const isOpen = state.activeCourse &&
     state.activeCourse.yearKey === yearKey &&
@@ -593,10 +595,6 @@ function renderSemesterBlock(yearKey, sem) {
       </div>
 
       ${addCourseFormHtml}
-
-      <div class="summary-grid" id="summary-${yearKey}-${semSlug}">
-        ${summaryCardsHtml(summary)}
-      </div>
 
       ${courseCardsHtml}
     </div>
@@ -1532,44 +1530,6 @@ function yearKeyForCourse(courseId) {
   return c ? c.yearKey : '';
 }
 
-function summaryCardsHtml(s) {
-  return `
-    <div class="summary-card"><div class="num">${s.totalStudents}</div><div class="lbl">Total number of students</div></div>
-    <div class="summary-card"><div class="num">${s.complete}</div><div class="lbl">Complete passes (no carryover)</div></div>
-    <div class="summary-card"><div class="num">${s.incomplete}</div><div class="lbl">Incomplete passes</div></div>
-    <div class="summary-card"><div class="num">${s.highest === null ? '—' : s.highest.toFixed(2)}</div><div class="lbl">Highest GPA</div></div>
-    <div class="summary-card"><div class="num">${s.lowest === null ? '—' : s.lowest.toFixed(2)}</div><div class="lbl">Lowest GPA</div></div>
-  `;
-}
-
-/* group semester rows by Reg No -> compute per-student GPA & pass status */
-function computeSummary(rows, yearKey, sem) {
-  const configuredTotal = (state.creditLoad[yearKey] && state.creditLoad[yearKey][sem]) || null;
-  const byReg = {};
-  rows.forEach(r => {
-    const reg = (r.regNo || '').trim();
-    if (!reg) return;
-    if (!byReg[reg]) byReg[reg] = [];
-    byReg[reg].push(r);
-  });
-  const regs = Object.keys(byReg);
-  let complete = 0, incomplete = 0;
-  const gpas = [];
-  regs.forEach(reg => {
-    const stats = computeGpaStats(byReg[reg], configuredTotal);
-    const hasF = stats.dedupedRows.some(r => gradeInfo(r.score).grade === 'F');
-    const hasBlank = stats.dedupedRows.some(r => gradeInfo(r.score).grade === '');
-    if (hasF) incomplete++; else complete++;
-    if (stats.gpa !== null) gpas.push(stats.gpa);
-  });
-  return {
-    totalStudents: regs.length,
-    complete, incomplete,
-    highest: gpas.length ? Math.max(...gpas) : null,
-    lowest: gpas.length ? Math.min(...gpas) : null
-  };
-}
-
 /* ===================== ROW EDITING ===================== */
 function updateCell(yearKey, sem, idx, field, value) {
   state.years[yearKey][sem][idx][field] = value;
@@ -1594,7 +1554,6 @@ function updateScore(yearKey, sem, idx, value) {
   const pointCell = document.getElementById(`point-${yearKey}-${sem}-${idx}`);
   if (gradeCell) { gradeCell.textContent = gi.grade; gradeCell.className = 'grade-cell grade-' + gi.grade; }
   if (pointCell) { pointCell.textContent = gi.point === null ? '' : gi.point; }
-  refreshSummary(yearKey, sem);
   saveToLocalStorage();
   scheduleSave(yearKey, sem, idx);
 }
@@ -1637,7 +1596,6 @@ function updateComponent(yearKey, sem, idx, field, value) {
   if (gradeCell) { gradeCell.textContent = gi.grade; gradeCell.className = 'grade-cell grade-' + gi.grade; }
   if (pointCell) { pointCell.textContent = gi.point === null ? '' : gi.point; }
 
-  refreshSummary(yearKey, sem);
   saveToLocalStorage();
   scheduleSave(yearKey, sem, idx);
 }
@@ -1909,7 +1867,7 @@ async function initApp() {
     loadFromLocalStorage();
   }
   updateSyncUI();
-  switchView('Year 1');
+  switchView('Dashboard');
 
   window.addEventListener('online', () => {
     updateSyncUI();
@@ -1923,10 +1881,333 @@ async function signOut() {
   window.location.href = 'index.html';
 }
 
-function refreshSummary(yearKey, sem) {
-  const semSlug = sem.replace(/\s+/g, '-');
-  const el = document.getElementById(`summary-${yearKey}-${semSlug}`);
-  if (el) el.innerHTML = summaryCardsHtml(computeSummary(state.years[yearKey][sem], yearKey, sem));
+/* ===================== DASHBOARD VIEW ===================== */
+let dashboardState = { year: 'all' };
+let dashboardCharts = {};
+
+async function renderDashboardView() {
+  return renderDashboardContent();
+}
+
+function renderDashboardContent() {
+  const yearOptions = YEAR_KEYS.map(y => `<option value="${y}">${y}</option>`).join('');
+  const sessionLabel = state.academicSessions[dashboardState.year] || '';
+
+  return renderLetterhead('DASHBOARD', sessionLabel) + `
+    <div class="dashboard-view">
+      <div class="dashboard-year-filter">
+        <label for="dashboardYear">Filter by Year</label>
+        <select id="dashboardYear">
+          <option value="all">All Years</option>
+          ${yearOptions}
+        </select>
+      </div>
+
+      <div id="dashboardKpis" class="dashboard-kpi-row">
+        <div class="kpi-card">
+          <div class="kpi-value" id="kpiTotalStudents">0</div>
+          <div class="kpi-label">Total Students Tracked</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-value" id="kpiTotalCourses">0</div>
+          <div class="kpi-label">Total Courses Launched</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-value" id="kpiCarryovers">0</div>
+          <div class="kpi-label">Active Carry-overs</div>
+        </div>
+      </div>
+
+      <div class="dashboard-hero">
+        <div class="hero-label">Overall Cohort GPA</div>
+        <div class="hero-value" id="dashboardCohortGpa">—</div>
+      </div>
+
+      <div class="dashboard-charts">
+        <div class="chart-card">
+          <div class="chart-card-title">Average GPA by Year</div>
+          <canvas id="chartGpaByYear" height="180"></canvas>
+        </div>
+        <div class="chart-card">
+          <div class="chart-card-title">Grade Distribution</div>
+          <canvas id="chartGradeDist" height="180"></canvas>
+        </div>
+      </div>
+
+      <div class="dashboard-section">
+        <h3 class="dashboard-section-title">Recent Activity</h3>
+        <div id="dashboardActivity" class="dashboard-activity">
+          <div class="dashboard-empty">Loading…</div>
+        </div>
+      </div>
+
+      <div class="dashboard-section">
+        <h3 class="dashboard-section-title">Carry-over Students</h3>
+        <div id="dashboardCarryovers" class="dashboard-carryovers">
+          <div class="dashboard-empty">Loading…</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function loadDashboardData() {
+  const yearParam = dashboardState.year !== 'all' ? `?year=${encodeURIComponent(dashboardState.year)}` : '';
+  try {
+    const [summaryRes, gpaRes] = await Promise.all([
+      apiFetch(`/api/dashboard/summary${yearParam}`),
+      apiFetch(`/api/dashboard/gpa-data${yearParam}`)
+    ]);
+
+    const summary = summaryRes;
+    const gpaRows = gpaRes || [];
+
+    renderDashboardKpis(summary);
+    renderDashboardCohortGpa(gpaRows);
+    renderGradeDistributionChart(summary.gradeDistribution);
+    renderGpaByYearChart(gpaRows);
+    renderActivityTable(summary.recentActivity);
+    renderCarryovers(summary.carryoverStudents, summary.carryoverStudentsTotal);
+  } catch (err) {
+    console.error('Dashboard data load error:', err.message);
+    const activityEl = document.getElementById('dashboardActivity');
+    if (activityEl) activityEl.innerHTML = '<div class="dashboard-empty">Unable to load dashboard data. Please try again.</div>';
+    const carryoverEl = document.getElementById('dashboardCarryovers');
+    if (carryoverEl) carryoverEl.innerHTML = '<div class="dashboard-empty">Unable to load data.</div>';
+  }
+}
+
+function renderDashboardKpis(summary) {
+  const kpiTotalStudents = document.getElementById('kpiTotalStudents');
+  const kpiTotalCourses = document.getElementById('kpiTotalCourses');
+  const kpiCarryovers = document.getElementById('kpiCarryovers');
+
+  if (kpiTotalStudents) kpiTotalStudents.textContent = summary.totalStudents ?? 0;
+  if (kpiTotalCourses) kpiTotalCourses.textContent = summary.totalCourses ?? 0;
+  if (kpiCarryovers) kpiCarryovers.textContent = summary.carryoverCount ?? 0;
+}
+
+function renderDashboardCohortGpa(gpaRows) {
+  const el = document.getElementById('dashboardCohortGpa');
+  if (!el) return;
+  if (!gpaRows || gpaRows.length === 0) {
+    el.textContent = '—';
+    return;
+  }
+  const stats = computeGpaStats(gpaRows, null);
+  el.textContent = stats.gpa !== null ? stats.gpa.toFixed(2) : '—';
+}
+
+function renderGpaByYearChart(gpaRows) {
+  if (!gpaRows || gpaRows.length === 0) {
+    const ctx = document.getElementById('chartGpaByYear');
+    if (ctx) {
+      if (dashboardCharts.gpaByYear) dashboardCharts.gpaByYear.destroy();
+      dashboardCharts.gpaByYear = new Chart(ctx, {
+        type: 'bar',
+        data: { labels: [], datasets: [] },
+        options: { plugins: { legend: { display: false } } }
+      });
+    }
+    return;
+  }
+
+  const byYear = {};
+  gpaRows.forEach(r => {
+    if (!byYear[r.year]) byYear[r.year] = [];
+    byYear[r.year].push(r);
+  });
+
+  const labels = Object.keys(byYear).sort();
+  const data = labels.map(y => {
+    const stats = computeGpaStats(byYear[y], null);
+    return stats.gpa !== null ? stats.gpa.toFixed(2) : '—';
+  });
+
+  const ctx = document.getElementById('chartGpaByYear');
+  if (ctx) {
+    if (dashboardCharts.gpaByYear) dashboardCharts.gpaByYear.destroy();
+    dashboardCharts.gpaByYear = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          label: 'GPA',
+          data,
+          backgroundColor: '#0B4432',
+          borderColor: '#0B4432',
+          borderRadius: 4
+        }]
+      },
+      options: {
+        scales: {
+          y: {
+            beginAtZero: true,
+            max: 5,
+            grid: { color: 'rgba(11, 68, 50, 0.08)' },
+            ticks: { color: '#1C1F1D', font: { family: 'Inter' } }
+          },
+          x: {
+            grid: { display: false },
+            ticks: { color: '#1C1F1D', font: { family: 'Inter' } }
+          }
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#0B4432',
+            titleFont: { family: 'Inter' },
+            bodyFont: { family: 'Inter' }
+          }
+        }
+      }
+    });
+  }
+}
+
+function renderGradeDistributionChart(dist) {
+  const ctx = document.getElementById('chartGradeDist');
+  const labels = ['A', 'B', 'C', 'D', 'E', 'F'];
+  const data = labels.map(g => dist[g] ?? 0);
+
+  if (ctx) {
+    if (dashboardCharts.gradeDist) dashboardCharts.gradeDist.destroy();
+    dashboardCharts.gradeDist = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Count',
+          data,
+          backgroundColor: '#0B4432',
+          borderColor: '#0B4432',
+          borderRadius: 4
+        }]
+      },
+      options: {
+        scales: {
+          y: {
+            beginAtZero: true,
+            grid: { color: 'rgba(11, 68, 50, 0.08)' },
+            ticks: { color: '#1C1F1D', font: { family: 'Inter' } }
+          },
+          x: {
+            grid: { display: false },
+            ticks: { color: '#1C1F1D', font: { family: 'Inter' } }
+          }
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#0B4432',
+            titleFont: { family: 'Inter' },
+            bodyFont: { family: 'Inter' }
+          }
+        }
+      }
+    });
+  }
+}
+
+function renderActivityTable(activity) {
+  const el = document.getElementById('dashboardActivity');
+  if (!el) return;
+
+  if (!activity || activity.length === 0) {
+    el.innerHTML = '<div class="dashboard-empty">No recent activity yet.</div>';
+    return;
+  }
+
+  const rows = activity.map(item => {
+    const timeAgo = formatRelativeTime(item.updated_at);
+    return `
+      <tr>
+        <td>${escHtml(item.student_name || '')}</td>
+        <td>${escHtml(item.reg_no || '')}</td>
+        <td>${escHtml(item.course_code || '')}</td>
+        <td>${escHtml(item.score !== '' && item.score !== null && item.score !== undefined ? item.score : '')}</td>
+        <td>${escHtml(item.grade || '')}</td>
+        <td>${escHtml(item.year || '')} / ${escHtml(item.semester || '')}</td>
+        <td><span class="activity-time">${timeAgo}</span></td>
+      </tr>
+    `;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="table-scroll">
+      <table class="activity-table">
+        <thead>
+          <tr>
+            <th>Student Name</th>
+            <th>Reg No</th>
+            <th>Course</th>
+            <th>Score</th>
+            <th>Grade</th>
+            <th>Year / Semester</th>
+            <th>Updated</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderCarryovers(students, totalCount) {
+  const el = document.getElementById('dashboardCarryovers');
+  if (!el) return;
+
+  if (!students || students.length === 0) {
+    el.innerHTML = '<div class="dashboard-empty">No carry-over students.</div>';
+    return;
+  }
+
+  const avatars = students.map(s => {
+    const name = s.student_name || '';
+    const reg = s.reg_no || '';
+    return `<div class="avatar-stack-item" title="${escAttr(name || reg)}">${generateInitialsAvatar(name, reg, 32)}</div>`;
+  }).join('');
+
+  const moreBadge = totalCount > students.length
+    ? `<span class="avatar-more">+${totalCount - students.length} more</span>`
+    : '';
+
+  el.innerHTML = `
+    <div class="avatar-stack">
+      ${avatars}
+      ${moreBadge}
+    </div>
+    <div class="carryover-count">Total: ${totalCount} student${totalCount !== 1 ? 's' : ''}</div>
+  `;
+}
+
+function formatRelativeTime(timestamp) {
+  if (!timestamp) return '—';
+  const d = new Date(timestamp);
+  if (isNaN(d)) return '—';
+  const now = new Date();
+  const diffMs = now - d;
+  const diffMin = Math.floor(diffMs / 60000);
+  const diffHr = Math.floor(diffMs / 3600000);
+  const diffDay = Math.floor(diffMs / 86400000);
+
+  if (diffMin < 1) return 'just now';
+  if (diffMin < 60) return `${diffMin} min ago`;
+  if (diffHr < 24) return `${diffHr} hour${diffHr !== 1 ? 's' : ''} ago`;
+  if (diffDay < 7) return `${diffDay} day${diffDay !== 1 ? 's' : ''} ago`;
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function attachDashboardHandlers() {
+  const yearSelect = document.getElementById('dashboardYear');
+  if (yearSelect) {
+    yearSelect.value = dashboardState.year;
+    yearSelect.addEventListener('change', () => {
+      dashboardState.year = yearSelect.value;
+      loadDashboardData();
+    });
+  }
+  loadDashboardData();
 }
 
 /* ===================== TRANSCRIPT VIEW ===================== */

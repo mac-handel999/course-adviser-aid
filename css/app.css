@@ -167,6 +167,11 @@
   border: 1px solid rgba(255, 255, 255, 0.25);
 }
 
+.nav-btn.dashboard {
+  margin-top: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
 .nav-btn.settings {
   margin-top: 8px;
 }
@@ -1351,7 +1356,207 @@ td.sn-cell {
     overflow-x: auto;
   }
 
-  .transcript-doc table {
+   .transcript-doc table {
     min-width: 600px;
   }
+}
+
+/* ===================== DASHBOARD ===================== */
+.dashboard-view {
+  padding: 8px 4px 24px;
+}
+
+.dashboard-year-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 20px;
+}
+
+.dashboard-year-filter label {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .3px;
+}
+
+.dashboard-year-filter select {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: 'Inter', sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+  max-width: 200px;
+}
+
+.dashboard-year-filter select:focus {
+  outline: none;
+  border-color: var(--gold);
+}
+
+.dashboard-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 14px;
+  margin-bottom: 24px;
+}
+
+.kpi-card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 18px 16px;
+  box-shadow: 0 2px 8px rgba(11, 68, 50, 0.05);
+  text-align: center;
+}
+
+.kpi-value {
+  font-family: 'Source Serif 4', serif;
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--green-deep);
+  line-height: 1.1;
+}
+
+.kpi-label {
+  font-family: 'Inter', sans-serif;
+  font-size: 11.5px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  margin-top: 4px;
+}
+
+.dashboard-hero {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--gold);
+  border-radius: 10px;
+  padding: 26px 22px;
+  margin-bottom: 24px;
+  box-shadow: 0 2px 10px rgba(11, 68, 50, 0.06);
+  text-align: center;
+}
+
+.hero-label {
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  margin-bottom: 6px;
+}
+
+.hero-value {
+  font-family: 'Source Serif 4', serif;
+  font-size: 42px;
+  font-weight: 700;
+  color: var(--green-deep);
+  line-height: 1;
+}
+
+.dashboard-charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.chart-card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px;
+  box-shadow: 0 2px 8px rgba(11, 68, 50, 0.04);
+}
+
+.chart-card-title {
+  font-family: 'Inter', sans-serif;
+  font-size: 12.5px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .3px;
+  margin-bottom: 10px;
+}
+
+.dashboard-section {
+  margin-bottom: 24px;
+}
+
+.dashboard-section-title {
+  font-family: 'Source Serif 4', serif;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--green-deep);
+  margin: 0 0 12px 0;
+}
+
+.dashboard-empty {
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
+  padding: 24px 12px;
+}
+
+.activity-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.activity-table th,
+.activity-table td {
+  border: 1px solid var(--line);
+  padding: 7px 10px;
+  text-align: left;
+}
+
+.activity-table th {
+  font-family: 'Inter', sans-serif;
+  font-size: 10.5px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .3px;
+}
+
+.activity-time {
+  font-family: 'Inter', sans-serif;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.avatar-stack {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.avatar-stack-item {
+  display: inline-flex;
+}
+
+.avatar-more {
+  font-family: 'Inter', sans-serif;
+  font-size: 11.5px;
+  color: var(--muted);
+  background: var(--line-soft);
+  border-radius: 12px;
+  padding: 2px 8px;
+}
+
+.carryover-count {
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Make sure the .table-scroll inside the activity table works */
+.dashboard-empty-table {
+  min-width: 560px;
 }
