@@ -2261,6 +2261,7 @@ function attachTranscriptHandlers() {
 }
 
 function attachSettingsHandlers() {
+  setupSettingsSelects();
   const saveBtn = document.getElementById('saveSettingsBtn');
   if (saveBtn) saveBtn.addEventListener('click', saveSettings);
 
@@ -2968,14 +2969,14 @@ function renderSettingsView() {
     <div class="settings-card">
       <h3>Portal settings</h3>
       <div class="settings-form">
-        <div class="meta-field">
-          <label for="settingFaculty">Faculty / School</label>
-          <input id="settingFaculty" value="${escAttr(state.meta.school)}">
-        </div>
-        <div class="meta-field">
-          <label for="settingDepartment">Department</label>
-          <input id="settingDepartment" value="${escAttr(state.meta.department)}">
-        </div>
+         <div class="meta-field">
+           <label for="settingFaculty">Faculty / School</label>
+           <div id="settingFacultyContainer"></div>
+         </div>
+         <div class="meta-field">
+           <label for="settingDepartment">Department</label>
+           <div id="settingDepartmentContainer"></div>
+         </div>
         <div class="meta-field">
           <label for="settingSlug">Portal slug</label>
           <input id="settingSlug" value="${escAttr(slug)}" placeholder="e.g. mrs-adeyemi-ph">
@@ -3315,6 +3316,282 @@ function generateInitialsAvatar(name, email, sizePx) {
 /* ===================== UTIL ===================== */
 function escAttr(v) { return (v === undefined || v === null) ? '' : String(v).replace(/"/g, '&quot;'); }
 function escHtml(v) { return (v === undefined || v === null) ? '' : String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+/* ===================== SEARCHABLE SELECT COMPONENT ===================== */
+let futoSchools = null;
+
+async function loadFutoSchools() {
+  if (futoSchools) return futoSchools;
+  try {
+    const res = await fetch('/assets/futo-schools.json');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    futoSchools = data.schools || [];
+    return futoSchools;
+  } catch (err) {
+    console.error('Failed to load FUTO schools:', err.message);
+    futoSchools = [];
+    return futoSchools;
+  }
+}
+
+function createSearchableSelect(container, options) {
+  const {
+    inputId,
+    placeholder = 'Type to search…',
+    optionLabel = 'name',
+    optionSublabel = null,
+    options: opts = [],
+    defaultValue = '',
+    disabled = false,
+    onOptionSelect = null
+  } = options;
+
+  const safePlaceholder = placeholder || 'Type to search…';
+  const safeInputId = inputId || `ss-input-${Math.random().toString(36).slice(2, 10)}`;
+
+  container.innerHTML = `
+    <div class="searchable-select" data-input-id="${safeInputId}" ${disabled ? 'data-disabled="true"' : ''}>
+      <input type="text" id="${safeInputId}" class="ss-input" placeholder="${escAttr(safePlaceholder)}" autocomplete="off" ${disabled ? 'disabled' : ''}>
+      <div class="ss-dropdown" style="display:none">
+        <div class="ss-options"></div>
+      </div>
+    </div>
+  `;
+
+  const input = container.querySelector('.ss-input');
+  const dropdown = container.querySelector('.ss-dropdown');
+  const optionsList = container.querySelector('.ss-options');
+
+  input.value = defaultValue || '';
+
+  let filtered = [];
+  let activeIndex = -1;
+
+  function renderOptions() {
+    optionsList.innerHTML = '';
+    if (filtered.length === 0) {
+      optionsList.innerHTML = '<div class="ss-no-results">No matching option</div>';
+      return;
+    }
+    filtered.forEach((opt, i) => {
+      const div = document.createElement('div');
+      div.className = 'ss-option';
+      if (i === activeIndex) div.classList.add('active');
+      div.dataset.index = i;
+      let labelHtml = escHtml(opt[optionLabel] || '');
+      if (optionSublabel && opt[optionSublabel]) {
+        labelHtml += ` <span class="ss-sublabel">${escHtml(opt[optionSublabel])}</span>`;
+      }
+      div.innerHTML = labelHtml;
+      div.addEventListener('mousedown', e => {
+        e.preventDefault();
+        selectOption(i);
+      });
+      optionsList.appendChild(div);
+    });
+  }
+
+  function filterOptions() {
+    const term = input.value.toLowerCase().trim();
+    if (!term) {
+      filtered = opts.slice();
+    } else {
+      filtered = opts.filter(opt =>
+        (opt[optionLabel] || '').toLowerCase().includes(term)
+      );
+    }
+    activeIndex = -1;
+    renderOptions();
+    updateActiveHighlight();
+  }
+
+  function selectOption(idx) {
+    if (idx < 0 || idx >= filtered.length) return;
+    const opt = filtered[idx];
+    input.value = opt[optionLabel] || '';
+    dropdown.style.display = 'none';
+    activeIndex = -1;
+    if (onOptionSelect) onOptionSelect(opt);
+  }
+
+  function openDropdown() {
+    if (disabled) return;
+    filterOptions();
+    dropdown.style.display = 'block';
+  }
+
+  function closeDropdown() {
+    dropdown.style.display = 'none';
+    activeIndex = -1;
+    renderOptions();
+  }
+
+  function updateActiveHighlight() {
+    const items = optionsList.querySelectorAll('.ss-option');
+    items.forEach((item, i) => {
+      item.classList.toggle('active', i === activeIndex);
+    });
+  }
+
+  input.addEventListener('focus', () => {
+    if (!disabled) openDropdown();
+  });
+
+  input.addEventListener('input', () => {
+    filterOptions();
+  });
+
+  input.addEventListener('keydown', e => {
+    if (!dropdown.style.display || dropdown.style.display === 'none') {
+      if (e.key === 'ArrowDown' && !disabled) {
+        e.preventDefault();
+        openDropdown();
+      }
+      return;
+    }
+
+    if (e.key === 'Escape') {
+      closeDropdown();
+      input.blur();
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (filtered.length === 0) return;
+      activeIndex = activeIndex < filtered.length - 1 ? activeIndex + 1 : 0;
+      updateActiveHighlight();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (filtered.length === 0) return;
+      activeIndex = activeIndex > 0 ? activeIndex - 1 : filtered.length - 1;
+      updateActiveHighlight();
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (activeIndex >= 0 && activeIndex < filtered.length) {
+        selectOption(activeIndex);
+      }
+    }
+  });
+
+  document.addEventListener('click', e => {
+    if (!container.contains(e.target)) {
+      closeDropdown();
+    }
+  });
+
+  return {
+    input,
+    getValue: () => input.value.trim(),
+    setValue: (val) => { input.value = val || ''; },
+    setOptions: (newOpts) => { filtered = []; opts.length = 0; opts.push(...newOpts); filterOptions(); },
+    disable: (shouldDisable) => {
+      disabled = shouldDisable;
+      if (disabled) {
+        input.disabled = true;
+        closeDropdown();
+      } else {
+        input.disabled = false;
+      }
+    },
+    open: openDropdown,
+    close: closeDropdown
+  };
+}
+
+/* ===================== SETTINGS SEARCHABLE SELECTS ===================== */
+let schoolSelect = null;
+let departmentSelect = null;
+
+async function setupSettingsSelects() {
+  await loadFutoSchools();
+  restoreSchoolSelect();
+}
+
+function onSchoolSelected(school) {
+  const depts = (school && school.departments) || [];
+
+  if (departmentSelect) {
+    departmentSelect.setOptions(depts);
+    departmentSelect.disable(false);
+    departmentSelect.setValue('');
+  }
+
+  /* If the adviser's stored department happens to belong to the newly
+     selected school's list, restore it — otherwise leave the field
+     cleared so they pick a valid one. */
+  if (school && depts.length) {
+    const savedDept = state.meta.department || '';
+    if (savedDept) {
+      const match = depts.find(d => d.name === savedDept ||
+        d.name.toLowerCase() === savedDept.toLowerCase());
+      if (match && departmentSelect) {
+        departmentSelect.setValue(savedDept);
+      }
+    }
+  }
+}
+
+function restoreSchoolSelect() {
+  const schools = futoSchools || [];
+  const schoolOptions = schools.filter(s => s.type === 'school');
+
+  const schoolContainer = document.getElementById('settingFacultyContainer');
+  if (schoolContainer && !schoolSelect) {
+    schoolSelect = createSearchableSelect(schoolContainer, {
+      inputId: 'settingFaculty',
+      placeholder: 'Search schools…',
+      optionLabel: 'name',
+      options: schoolOptions,
+      defaultValue: state.meta.school || '',
+      onOptionSelect: (school) => {
+        onSchoolSelected(school);
+      }
+    });
+  }
+
+  const deptContainer = document.getElementById('settingDepartmentContainer');
+  if (deptContainer && !departmentSelect) {
+    departmentSelect = createSearchableSelect(deptContainer, {
+      inputId: 'settingDepartment',
+      placeholder: 'Select a school first',
+      optionLabel: 'name',
+      optionSublabel: 'code',
+      options: [],
+      defaultValue: state.meta.department || '',
+      disabled: true,
+      onOptionSelect: () => {
+        if (departmentSelect && departmentSelect.input) {
+          departmentSelect.input.blur();
+        }
+      }
+    });
+  }
+
+  if (!schoolSelect) return;
+
+  const currentSchool = state.meta.school || '';
+  schoolSelect.setValue(currentSchool);
+
+  const match = schoolOptions.find(s => s.name === currentSchool) ||
+                schoolOptions.find(s => s.name.toLowerCase() === currentSchool.toLowerCase());
+
+  if (match && departmentSelect) {
+    departmentSelect.setOptions(match.departments || []);
+    departmentSelect.disable(false);
+    const savedDept = state.meta.department || '';
+    if (savedDept) {
+      departmentSelect.setValue(savedDept);
+    } else {
+      departmentSelect.setValue('');
+    }
+  } else if (departmentSelect) {
+    /* Stored school doesn't match any JSON entry.
+       Preserve whatever Department was stored so the user can save
+       without losing data — they can change it later by picking a
+       school from the dropdown. */
+    departmentSelect.disable(true);
+  }
+}
+
 
 /* ===================== INIT ===================== */
 initApp();

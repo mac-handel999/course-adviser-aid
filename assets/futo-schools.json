@@ -1,0 +1,152 @@
+{
+  "schools": [
+    {
+      "code": "SOBS",
+      "name": "School of Biological Science",
+      "type": "school",
+      "departments": [
+        { "code": "BTC", "name": "Biotechnology" },
+        { "code": "MCB", "name": "Microbiology" },
+        { "code": "BIO", "name": "Biology" },
+        { "code": "FRS", "name": "Forensic Science" },
+        { "code": "BCH", "name": "Biochemistry" }
+      ]
+    },
+    {
+      "code": "SBMS",
+      "name": "School of Basic Medical Sciences",
+      "type": "school",
+      "departments": [
+        { "code": "ANT", "name": "Human Anatomy" },
+        { "code": "HPH", "name": "Human Physiology" }
+      ]
+    },
+    {
+      "code": "SAAT",
+      "name": "School of Agriculture and Agricultural Technology",
+      "type": "school",
+      "departments": [
+        { "code": "AGR", "name": "Agribusiness" },
+        { "code": "AEC", "name": "Agricultural Economics" },
+        { "code": "AEX", "name": "Agricultural Extension" },
+        { "code": "FWT", "name": "Forestry and Wildlife Technology" },
+        { "code": "FAT", "name": "Fisheries and Aquaculture Technology" },
+        { "code": "AST", "name": "Animal Science and Technology" },
+        { "code": "SST", "name": "Soil Science and Technology" },
+        { "code": "CST", "name": "Crop Science and Technology" }
+      ]
+    },
+    {
+      "code": "SESET",
+      "name": "School of Electrical Systems and Engineering Technology",
+      "type": "school",
+      "departments": [
+        { "code": "MCE", "name": "Mechatronics Engineering" },
+        { "code": "CPE", "name": "Computer Engineering" },
+        { "code": "ELE", "name": "Electronics Engineering" },
+        { "code": "TCE", "name": "Telecommunications Engineering" },
+        { "code": "EPE", "name": "Electrical (Power Systems) Engineering" }
+      ]
+    },
+    {
+      "code": "SOPS",
+      "name": "School of Physical Science",
+      "type": "school",
+      "departments": [
+        { "code": "MTH", "name": "Mathematics" },
+        { "code": "STA", "name": "Statistics" },
+        { "code": "SLT", "name": "Science Laboratory Technology" },
+        { "code": "CHM", "name": "Chemistry" },
+        { "code": "PHY", "name": "Physics" }
+      ]
+    },
+    {
+      "code": "SOES",
+      "name": "School of Environmental Sciences",
+      "type": "school",
+      "departments": [
+        { "code": "ARC", "name": "Architecture" },
+        { "code": "BLD", "name": "Building Technology" },
+        { "code": "EVM", "name": "Environmental Management" },
+        { "code": "QTS", "name": "Quantity Surveying" },
+        { "code": "SVG", "name": "Surveying and Geoinformatics" },
+        { "code": "URP", "name": "Urban and Regional Planning" },
+        { "code": "EME", "name": "Estate Management and Evaluation" }
+      ]
+    },
+    {
+      "code": "SOHT",
+      "name": "School of Health Technology",
+      "type": "school",
+      "departments": [
+        { "code": "POT", "name": "Prosthetics and Orthotics" },
+        { "code": "EHS", "name": "Environmental Health Science" },
+        { "code": "OPT", "name": "Optometry" },
+        { "code": "PUH", "name": "Public Health Technology" },
+        { "code": "DNT", "name": "Dental Technology" },
+        { "code": "RAD", "name": "Radiography" }
+      ]
+    },
+    {
+      "code": "SEET",
+      "name": "School of Engineering and Engineering Technology",
+      "type": "school",
+      "departments": [
+        { "code": "MEE", "name": "Mechanical Engineering" },
+        { "code": "PTE", "name": "Polymer and Textile Engineering" },
+        { "code": "PET", "name": "Petroleum Engineering" },
+        { "code": "FST", "name": "Food Science and Technology" },
+        { "code": "BME", "name": "Biomedical Engineering" },
+        { "code": "MME", "name": "Material and Metallurgical Engineering" },
+        { "code": "ABE", "name": "Agricultural and Bioresources Engineering" },
+        { "code": "CIE", "name": "Civil Engineering" },
+        { "code": "CHE", "name": "Chemical Engineering" }
+      ]
+    },
+    {
+      "code": "SLIT",
+      "name": "School of Logistics and Innovation Technology",
+      "type": "school",
+      "departments": [
+        { "code": "MTL", "name": "Maritime Technology and Logistics" },
+        { "code": "LTT", "name": "Logistics and Transport Technology" },
+        { "code": "EMV", "name": "Estate Management and Valuation" },
+        { "code": "ENI", "name": "Entrepreneurship and Innovation" },
+        { "code": "LSCM", "name": "Logistics and Supply Chain Management" },
+        { "code": "PMT", "name": "Project Management Technology" }
+      ]
+    },
+    {
+      "code": "SICT",
+      "name": "School of Information and Communication Technology",
+      "type": "school",
+      "departments": [
+        { "code": "SOE", "name": "Software Engineering" },
+        { "code": "CSC", "name": "Computer Science" },
+        { "code": "CYB", "name": "Cyber Security" },
+        { "code": "IFT", "name": "Information Technology" }
+      ]
+    },
+    {
+      "code": "DGS",
+      "name": "Directorate of General Studies",
+      "type": "directorate",
+      "departments": [
+        { "code": "GS", "name": "General Studies" }
+      ]
+    },
+    {
+      "code": "SPGS",
+      "name": "School of Postgraduate Studies",
+      "type": "postgraduate",
+      "departments": [
+        { "code": "PGS", "name": "PG School" }
+      ]
+    }
+  ],
+  "_meta": {
+    "source": "Transcribed directly from the project owner's pasted copy of futo.edu.ng/schools page content — this supersedes the earlier search-cross-referenced version of this file.",
+    "correction_applied": "Restored 'Estate Management and Valuation' (code EMV) under SLIT, which was incorrectly removed in the previous version of this file on the assumption it duplicated SOES's 'Estate Management and Evaluation' (code EME). The source confirms these are two distinct departments under two different schools, each with its own unique department code — not a duplicate.",
+    "note": "'type' distinguishes the 10 real academic schools ('school') from two non-standard entries also listed on the source page: the Directorate of General Studies ('directorate') and School of Postgraduate Studies ('postgraduate'), each of which has only one generic program rather than multiple departments. Consider filtering these two out of a course-adviser-facing dropdown, since they don't represent typical undergraduate departments — include them in the data regardless, in case they're useful for other purposes."
+  }
+}
