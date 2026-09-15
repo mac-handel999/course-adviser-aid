@@ -3484,6 +3484,7 @@ async function loadFutoSchools() {
     getValue: () => input.value.trim(),
     setValue: (val) => { input.value = val || ''; },
     setOptions: (newOpts) => { filtered = []; opts.length = 0; opts.push(...newOpts); filterOptions(); },
+    setPlaceholder: (text) => { input.placeholder = text || ''; },
     disable: (shouldDisable) => {
       disabled = shouldDisable;
       if (disabled) {
@@ -3512,6 +3513,7 @@ function onSchoolSelected(school) {
 
   if (departmentSelect) {
     departmentSelect.setOptions(depts);
+    departmentSelect.setPlaceholder('Search departments…');
     departmentSelect.disable(false);
     departmentSelect.setValue('');
   }
