@@ -1882,7 +1882,7 @@ async function signOut() {
 }
 
 /* ===================== DASHBOARD VIEW ===================== */
-let dashboardState = { year: 'all' };
+let dashboardState = { year: 'all', semester: 'all' };
 let dashboardCharts = {};
 
 function renderDashboardView() {
@@ -1891,16 +1891,26 @@ function renderDashboardView() {
 
 function renderDashboardContent() {
   const yearOptions = YEAR_KEYS.map(y => `<option value="${y}">${y}</option>`).join('');
+  const semesterOptions = SEMESTERS.map(s => `<option value="${escAttr(s)}">${escHtml(s)}</option>`).join('');
   const sessionLabel = state.academicSessions[dashboardState.year] || '';
 
   return renderLetterhead('DASHBOARD', sessionLabel) + `
     <div class="dashboard-view">
-      <div class="dashboard-year-filter">
-        <label for="dashboardYear">Filter by Year</label>
-        <select id="dashboardYear">
-          <option value="all">All Years</option>
-          ${yearOptions}
-        </select>
+      <div class="dashboard-filters">
+        <div class="dashboard-year-filter">
+          <label for="dashboardYear">Filter by Year</label>
+          <select id="dashboardYear">
+            <option value="all">All Years</option>
+            ${yearOptions}
+          </select>
+        </div>
+        <div class="dashboard-year-filter">
+          <label for="dashboardSemester">Filter by Semester</label>
+          <select id="dashboardSemester">
+            <option value="all">All Semesters</option>
+            ${semesterOptions}
+          </select>
+        </div>
       </div>
 
       <div id="dashboardKpis" class="dashboard-kpi-row">
@@ -1952,11 +1962,15 @@ function renderDashboardContent() {
 }
 
 async function loadDashboardData() {
-  const yearParam = dashboardState.year !== 'all' ? `?year=${encodeURIComponent(dashboardState.year)}` : '';
+  const params = new URLSearchParams();
+  if (dashboardState.year !== 'all') params.set('year', dashboardState.year);
+  if (dashboardState.semester !== 'all') params.set('semester', dashboardState.semester);
+  const queryString = params.toString();
+  const urlSuffix = queryString ? `?${queryString}` : '';
   try {
     const [summaryRes, gpaRes] = await Promise.all([
-      apiFetch(`/api/dashboard/summary${yearParam}`),
-      apiFetch(`/api/dashboard/gpa-data${yearParam}`)
+      apiFetch(`/api/dashboard/summary${urlSuffix}`),
+      apiFetch(`/api/dashboard/gpa-data${urlSuffix}`)
     ]);
 
     const summary = summaryRes;
@@ -2204,6 +2218,14 @@ function attachDashboardHandlers() {
     yearSelect.value = dashboardState.year;
     yearSelect.addEventListener('change', () => {
       dashboardState.year = yearSelect.value;
+      loadDashboardData();
+    });
+  }
+  const semSelect = document.getElementById('dashboardSemester');
+  if (semSelect) {
+    semSelect.value = dashboardState.semester;
+    semSelect.addEventListener('change', () => {
+      dashboardState.semester = semSelect.value;
       loadDashboardData();
     });
   }

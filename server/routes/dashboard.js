@@ -25,7 +25,7 @@ function gradeFromScore(score) {
 /* ===================== GET /api/dashboard/summary ===================== */
 router.get('/summary', async (req, res) => {
   try {
-    const { year } = req.query;
+    const { year, semester } = req.query;
     const userId = req.user.id;
 
     const resultsQuery = supabaseAdmin
@@ -37,6 +37,9 @@ router.get('/summary', async (req, res) => {
 
     if (year) {
       resultsQuery.eq('year', year);
+    }
+    if (semester) {
+      resultsQuery.eq('semester', semester);
     }
 
     const { data: results, error: resultsError } = await resultsQuery;
@@ -68,6 +71,9 @@ router.get('/summary', async (req, res) => {
       .eq('user_id', userId);
     if (year) {
       coursesQuery = coursesQuery.eq('year', year);
+    }
+    if (semester) {
+      coursesQuery = coursesQuery.eq('semester', semester);
     }
     const { count: coursesCount, error: coursesError } = await coursesQuery;
     if (coursesError) {
@@ -125,7 +131,7 @@ router.get('/summary', async (req, res) => {
 /* ===================== GET /api/dashboard/gpa-data ===================== */
 router.get('/gpa-data', async (req, res) => {
   try {
-    const { year } = req.query;
+    const { year, semester } = req.query;
     const userId = req.user.id;
 
     let query = supabaseAdmin
@@ -136,6 +142,9 @@ router.get('/gpa-data', async (req, res) => {
 
     if (year) {
       query = query.eq('year', year);
+    }
+    if (semester) {
+      query = query.eq('semester', semester);
     }
 
     const { data, error } = await query;

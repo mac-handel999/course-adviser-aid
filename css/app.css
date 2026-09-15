@@ -1366,21 +1366,30 @@ td.sn-cell {
   padding: 8px 4px 24px;
 }
 
-.dashboard-year-filter {
+.dashboard-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 20px;
+  align-items: flex-end;
+}
+
+.dashboard-filters .dashboard-year-filter {
+  flex: 1;
+  min-width: 160px;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  margin-bottom: 20px;
 }
 
-.dashboard-year-filter label {
+.dashboard-filters .dashboard-year-filter label {
   font-size: 11px;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: .3px;
 }
 
-.dashboard-year-filter select {
+.dashboard-filters .dashboard-year-filter select {
   padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -1389,10 +1398,9 @@ td.sn-cell {
   background: var(--paper);
   color: var(--ink);
   cursor: pointer;
-  max-width: 200px;
 }
 
-.dashboard-year-filter select:focus {
+.dashboard-filters .dashboard-year-filter select:focus {
   outline: none;
   border-color: var(--gold);
 }
