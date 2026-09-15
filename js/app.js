@@ -3335,7 +3335,7 @@ async function loadFutoSchools() {
   }
 }
 
-function createSearchableSelect(container, options) {
+  function createSearchableSelect(container, options) {
   const {
     inputId,
     placeholder = 'Type to search…',
@@ -3343,10 +3343,11 @@ function createSearchableSelect(container, options) {
     optionSublabel = null,
     options: opts = [],
     defaultValue = '',
-    disabled = false,
-    onOptionSelect = null
+    onOptionSelect = null,
+    initialDisabled = false
   } = options;
 
+  let disabled = initialDisabled;
   const safePlaceholder = placeholder || 'Type to search…';
   const safeInputId = inputId || `ss-input-${Math.random().toString(36).slice(2, 10)}`;
 
@@ -3557,7 +3558,7 @@ function restoreSchoolSelect() {
       optionSublabel: 'code',
       options: [],
       defaultValue: state.meta.department || '',
-      disabled: true,
+      initialDisabled: true,
       onOptionSelect: () => {
         if (departmentSelect && departmentSelect.input) {
           departmentSelect.input.blur();
