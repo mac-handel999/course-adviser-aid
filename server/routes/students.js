@@ -221,6 +221,81 @@ router.patch('/:id', async (req, res) => {
   }
 });
 
+/* ===================== DELETE /api/students (all) ====================
+   Delete ALL students belonging to the current adviser.  Students that
+   still have linked results rows are skipped (same safety check as the
+   single-delete endpoint — results are never cascade-deleted).  Returns a
+   summary of how many were deleted, how many were skipped, and which
+   reg_no values still had linked results. */
+router.delete('/', async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    // Load the full roster for this adviser
+    const { data: students, error: loadError } = await supabaseAdmin
+      .from('students')
+      .select('id, reg_no, full_name')
+      .eq('user_id', userId);
+
+    if (loadError) {
+      console.error('Students DELETE-all load error:', loadError.message);
+      return res.status(500).json({ error: 'Failed to load roster for deletion' });
+    }
+
+    if (!students || students.length === 0) {
+      return res.json({ deleted: 0, skipped: 0, skippedStudents: [] });
+    }
+
+    // Identify which students have linked results
+    const studentIds = students.map(s => s.id);
+    const { data: linkedRows, error: linkError } = await supabaseAdmin
+      .from('results')
+      .select('student_id')
+      .in('student_id', studentIds)
+      .not('student_id', 'is', null);
+
+    if (linkError) {
+      console.error('Students DELETE-all link-check error:', linkError.message);
+      return res.status(500).json({ error: 'Failed to check linked results' });
+    }
+
+    const linkedIds = new Set((linkedRows || []).map(r => r.student_id));
+
+    const toDelete = students.filter(s => !linkedIds.has(s.id));
+    const toSkip = students.filter(s => linkedIds.has(s.id));
+
+    if (toDelete.length === 0) {
+      return res.status(400).json({
+        error: 'No students could be deleted — all have linked results. Remove students from all courses first.',
+        deleted: 0,
+        skipped: toSkip.length,
+        skippedStudents: toSkip.map(s => ({ reg_no: s.reg_no, full_name: s.full_name }))
+      });
+    }
+
+    const toDeleteIds = toDelete.map(s => s.id);
+    const { error: deleteError } = await supabaseAdmin
+      .from('students')
+      .delete()
+      .in('id', toDeleteIds)
+      .eq('user_id', userId);
+
+    if (deleteError) {
+      console.error('Students DELETE-all delete error:', deleteError.message);
+      return res.status(500).json({ error: 'Failed to delete students' });
+    }
+
+    res.json({
+      deleted: toDelete.length,
+      skipped: toSkip.length,
+      skippedStudents: toSkip.map(s => ({ reg_no: s.reg_no, full_name: s.full_name }))
+    });
+  } catch (err) {
+    console.error('Students DELETE-all server error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 /* ===================== DELETE /api/students/:id =====================
    Only deletes if the student has zero linked results rows.
    If they have existing results, returns a clear error explaining the

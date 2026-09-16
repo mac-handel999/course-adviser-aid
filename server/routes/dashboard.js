@@ -113,8 +113,19 @@ router.get('/summary', async (req, res) => {
     const carryoverList = Array.from(carryoverStudents.values());
     const carryoverStudentsOut = carryoverList.slice(0, 5);
 
+    /* --- totalRosterStudents: count of students in the canonical roster --- */
+    const { count: rosterCount, error: rosterError } = await supabaseAdmin
+      .from('students')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId);
+
+    if (rosterError) {
+      console.error('Dashboard summary roster-count error:', rosterError.message);
+    }
+
     res.json({
       totalStudents: regSet.size,
+      totalRosterStudents: rosterCount || 0,
       totalCourses: coursesCount || 0,
       carryoverCount,
       gradeDistribution,

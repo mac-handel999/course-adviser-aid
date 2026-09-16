@@ -2040,6 +2040,7 @@ async function loadCourses() {
 
 /* ===================== STUDENT ROSTER ===================== */
 let studentRoster = { all: [], loaded: false };
+let realtimeChannels = [];
 
 async function loadStudents(search) {
   try {
@@ -2070,6 +2071,74 @@ async function createStudent(regNo, fullName, program) {
     method: 'POST',
     body: JSON.stringify({ reg_no: regNo, full_name: fullName, program: program || null })
   });
+}
+
+/* ===================== REALTIME ===================== */
+function setupRealtimeSubscriptions() {
+  if (!supabaseClient) return;
+
+  teardownRealtimeSubscriptions();
+
+  const tables = ['students', 'results', 'courses', 'adviser_settings', 'credit_load_settings', 'academic_sessions'];
+
+  tables.forEach(table => {
+    const channel = supabaseClient.channel(`public:${table}:*`)
+      .on('postgres_changes', { event: '*', schema: 'public', table }, (payload) => {
+        handleRealtimeChange(table, payload);
+      })
+      .subscribe((status) => {
+        if (status === 'SUBSCRIPTION_ERROR') {
+          console.warn(`Realtime subscription error for ${table}`);
+        }
+      });
+
+    realtimeChannels.push(channel);
+  });
+}
+
+function teardownRealtimeSubscriptions() {
+  realtimeChannels.forEach(ch => {
+    try { supabaseClient.removeChannel(ch); } catch { }
+  });
+  realtimeChannels = [];
+}
+
+function handleRealtimeChange(table, payload) {
+  const current = state.currentView;
+
+  switch (table) {
+    case 'students':
+      if (current === 'Settings') {
+        refreshClassRoster();
+      }
+      if (current === 'Dashboard') {
+        loadDashboardData();
+      }
+      break;
+    case 'results':
+      if (current === 'Dashboard') {
+        loadDashboardData();
+      }
+      if (YEAR_KEYS.includes(current)) {
+        loadFromApi();
+      }
+      break;
+    case 'courses':
+      if (current === 'Dashboard') {
+        loadDashboardData();
+      }
+      loadCourses();
+      break;
+    case 'adviser_settings':
+      loadSettings();
+      break;
+    case 'credit_load_settings':
+      loadSettings();
+      break;
+    case 'academic_sessions':
+      loadSettings();
+      break;
+  }
 }
 
 function updateSyncUI() {
@@ -2114,6 +2183,7 @@ async function initApp() {
         hideLoading();
       }
       switchView('Dashboard');
+      setupRealtimeSubscriptions();
       window.addEventListener('online', () => {
         updateSyncUI();
         replayOfflineQueue();
@@ -2128,6 +2198,7 @@ async function initApp() {
 }
 
 async function signOut() {
+  teardownRealtimeSubscriptions();
   if (supabaseClient) await supabaseClient.auth.signOut();
   window.location.href = 'login.html';
 }
@@ -2164,15 +2235,19 @@ function renderDashboardContent() {
         </div>
       </div>
 
-      <div id="dashboardKpis" class="dashboard-kpi-row">
-        <div class="kpi-card">
-          <div class="kpi-value" id="kpiTotalStudents">0</div>
-          <div class="kpi-label">Total Students Tracked</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-value" id="kpiTotalCourses">0</div>
-          <div class="kpi-label">Total Courses Launched</div>
-        </div>
+       <div class="dashboard-kpi-row">
+         <div class="kpi-card">
+           <div class="kpi-value" id="kpiTotalStudents">0</div>
+           <div class="kpi-label">Total Students Tracked</div>
+         </div>
+         <div class="kpi-card">
+           <div class="kpi-value" id="kpiRosterCount">0</div>
+           <div class="kpi-label">Students in Roster</div>
+         </div>
+         <div class="kpi-card">
+           <div class="kpi-value" id="kpiTotalCourses">0</div>
+           <div class="kpi-label">Total Courses Launched</div>
+         </div>
         <div class="kpi-card">
           <div class="kpi-value" id="kpiCarryovers">0</div>
           <div class="kpi-label">Active Carry-overs</div>
@@ -2244,10 +2319,12 @@ async function loadDashboardData() {
 
 function renderDashboardKpis(summary) {
   const kpiTotalStudents = document.getElementById('kpiTotalStudents');
+  const kpiRosterCount = document.getElementById('kpiRosterCount');
   const kpiTotalCourses = document.getElementById('kpiTotalCourses');
   const kpiCarryovers = document.getElementById('kpiCarryovers');
 
   if (kpiTotalStudents) kpiTotalStudents.textContent = summary.totalStudents ?? 0;
+  if (kpiRosterCount) kpiRosterCount.textContent = summary.totalRosterStudents ?? 0;
   if (kpiTotalCourses) kpiTotalCourses.textContent = summary.totalCourses ?? 0;
   if (kpiCarryovers) kpiCarryovers.textContent = summary.carryoverCount ?? 0;
 }
@@ -2636,6 +2713,9 @@ function attachSettingsHandlers() {
     });
   }
 
+  const deleteAllBtn = document.getElementById('deleteAllStudentsBtn');
+  if (deleteAllBtn) deleteAllBtn.addEventListener('click', deleteAllStudents);
+
   refreshClassRoster();
 }
 
@@ -2743,6 +2823,40 @@ async function deleteStudent(id) {
   } catch (err) {
     console.error('Student delete failed:', err.message);
     alert(err.message || 'Failed to delete student.');
+  }
+}
+
+async function deleteAllStudents() {
+  const count = (studentRoster.all || []).length;
+  if (count === 0) {
+    alert('There are no students in the roster to delete.');
+    return;
+  }
+
+  if (!confirm(`Delete ALL ${count} student${count === 1 ? '' : 's'} from your Class Roster?\n\nStudents linked to existing course results will be preserved — only those with no results will be removed.`)) return;
+
+  showLoading('Removing students…');
+  try {
+    const result = await apiFetch('/api/students', { method: 'DELETE' });
+    const deleted = result.deleted || 0;
+    const skipped = result.skipped || 0;
+
+    if (result.skippedStudents && result.skippedStudents.length > 0) {
+      const skippedList = result.skippedStudents.map(s => `${s.reg_no} (${s.full_name})`).join(', ');
+      alert(`Deleted ${deleted} student${deleted === 1 ? '' : 's'}.\n\n${skipped} student${skipped === 1 ? '' : 's'} still have linked results and could not be removed:\n${skippedList}`);
+    } else {
+      alert(`Deleted ${deleted} student${deleted === 1 ? '' : 's'} from your roster.`);
+    }
+
+    // Clear the local cache and re-render
+    studentRoster.all = [];
+    studentRoster.loaded = false;
+    renderClassRosterTable();
+  } catch (err) {
+    console.error('Students delete-all failed:', err.message);
+    alert(err.message || 'Failed to delete students.');
+  } finally {
+    hideLoading();
   }
 }
 
@@ -3804,9 +3918,10 @@ function renderSettingsView() {
            <label for="rosterSearch">Search students</label>
            <input id="rosterSearch" placeholder="Search by Reg No or name…">
          </div>
-         <button class="btn gold" id="addRosterStudentBtn">+ Add Student</button>
-         <button class="btn secondary" id="importRosterBtn" style="margin-bottom:12px">Import from file</button>
-         <input type="file" id="importRosterFile" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleStudentImportFile(this)">
+          <button class="btn gold" id="addRosterStudentBtn">+ Add Student</button>
+          <button class="btn secondary" id="importRosterBtn" style="margin-bottom:12px">Import from file</button>
+          <button class="btn secondary" id="deleteAllStudentsBtn" style="margin-bottom:12px">Delete All Students</button>
+          <input type="file" id="importRosterFile" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleStudentImportFile(this)">
          <span id="rosterStatus" class="settings-status"></span>
        </div>
       <div class="table-scroll" id="rosterTableWrap">
