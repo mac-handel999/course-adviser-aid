@@ -30,9 +30,20 @@
     </div>
   </div>
 
-  <div id="app">
+  <!-- Loading gate: main content is hidden until the session check in
+       initApp() resolves.  This is a client-side check only — the static
+       file itself is not server-side protected.  Every actual API call
+       is independently authenticated server-side regardless. -->
+  <div id="appLoadingGate" style="position:fixed;inset:0;background:rgba(252,252,249,0.92);display:flex;align-items:center;justify-content:center;z-index:9999">
+    <div class="loading-content">
+      <img src="assets/advyza-logo.svg" class="loading-logo" alt="Advyza">
+      <div class="loading-message">Checking session…</div>
+    </div>
+  </div>
+
+  <div id="app" style="display:none">
     <div class="sidebar">
-      <div class="sync-status"><span class="dot"></span>Working locally — not synced to the cloud yet</div>
+      <div class="sync-status"><span class="dot"></span></div>
       <div class="nav-group" id="navGroup"></div>
       <div class="account-nav" id="accountNavGroup"></div>
     </div>

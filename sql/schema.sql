@@ -337,3 +337,67 @@ begin
     alter table public.results add constraint results_course_reg_unique unique (course_id, reg_no);
   end if;
 end $$;
+
+-- =====================================================================
+-- Students table: canonical student roster per adviser.
+-- Results rows link to students via student_id (nullable so existing
+-- rows are not broken before the migration backfill runs).
+-- results.reg_no / results.student_name remain as denormalised historical
+-- copies — they are NOT removed, only student_id is added as the new
+-- primary link for new writes.
+-- =====================================================================
+create table if not exists public.students (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  reg_no text not null,
+  full_name text not null,
+  program text,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  unique (user_id, reg_no)
+);
+
+alter table public.students enable row level security;
+
+-- Primary enforcement is in the Express API routes (server/routes/students.js),
+-- because the API uses the Supabase service role key which bypasses RLS.
+-- These RLS policies are a secondary safeguard in case the anon key is ever
+-- used to query this table directly, bypassing the API.
+
+drop policy if exists "Authenticated users can read own students" on public.students;
+drop policy if exists "Authenticated users can insert own students" on public.students;
+drop policy if exists "Authenticated users can update own students" on public.students;
+drop policy if exists "Authenticated users can delete own students" on public.students;
+
+create policy "Authenticated users can read own students"
+  on public.students for select
+  to authenticated
+  using (user_id = auth.uid());
+
+create policy "Authenticated users can insert own students"
+  on public.students for insert
+  to authenticated
+  with check (user_id = auth.uid());
+
+create policy "Authenticated users can update own students"
+  on public.students for update
+  to authenticated
+  using (user_id = auth.uid());
+
+create policy "Authenticated users can delete own students"
+  on public.students for delete
+  to authenticated
+  using (user_id = auth.uid());
+
+drop trigger if exists students_set_updated_at on public.students;
+create trigger students_set_updated_at
+  before update on public.students
+  for each row execute function public.set_updated_at();
+
+-- Add student_id foreign key to results (nullable — existing rows are
+-- backfilled by scripts/migrate-students.js).  ON DELETE SET NULL preserves
+-- result rows even if the student roster entry is removed.
+alter table public.results add column if not exists student_id uuid references public.students(id) on delete set null;
+
+-- Index to accelerate joins and lookups by student_id.
+create index if not exists idx_results_student_id on public.results(student_id);

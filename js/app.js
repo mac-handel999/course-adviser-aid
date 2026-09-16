@@ -1,11 +1,11 @@
 /* =========================================================================
    Advyza — app logic
 
-   Signed-in users: edits are saved through the Express API to the Supabase
-   `results` table (see server/routes/results.js and sql/schema.sql).
-
-   Guest mode (not signed in, or Supabase not configured yet): everything
-   is saved to browser localStorage and reloaded on next visit.
+   Users must sign in via the Supabase auth flow (see js/auth.js).
+   On load, initApp checks for an active session; if none is found the
+   user is redirected to login.html.  Once signed in, edits are saved
+   through the Express API to the Supabase database
+   (see server/routes/results.js and sql/schema.sql).
    ========================================================================= */
 
 const META = {
@@ -13,7 +13,7 @@ const META = {
 };
 const YEAR_KEYS = Array.from({ length: 10 }, (_, i) => 'Year ' + (i + 1));
 const SEMESTERS = ['Harmattan Semester', 'Rain Semester'];
-const emptyRow = () => ({ id: null, regNo: '', name: '', code: '', title: '', unit: '', score: '', test_score: '', lab_score: '', exam_score: '', isCarryover: false, program: '', remark: '' });
+const emptyRow = () => ({ id: null, regNo: '', name: '', code: '', title: '', unit: '', score: '', test_score: '', lab_score: '', exam_score: '', isCarryover: false, program: '', remark: '', studentId: null });
 
 let state = { years: {}, courses: {}, currentView: 'Year 1', activeCourse: null, meta: { school: 'SCHOOL OF HEALTH TECHNOLOGY (SOHT)', department: 'DEPARTMENT OF PUBLIC HEALTH' }, creditLoad: {}, classSet: null, academicSessions: {} };
 YEAR_KEYS.forEach(y => {
@@ -130,34 +130,10 @@ function saveToLocalStorage() {
   }
 }
 
-function loadFromLocalStorage() {
-  try {
-    const raw = localStorage.getItem('futo-ph-results-state');
-    if (!raw) return false;
-    const loaded = JSON.parse(raw);
-    if (loaded && loaded.years) {
-      state = loaded;
-      // Ensure courses structure exists (for backward compatibility with old saves)
-      if (!state.courses) {
-        state.courses = {};
-        YEAR_KEYS.forEach(y => {
-          state.courses[y] = {};
-          SEMESTERS.forEach(s => { state.courses[y][s] = []; });
-        });
-      }
-      if (!state.activeCourse) state.activeCourse = null;
-      return true;
-    }
-  } catch (e) {
-    console.error('Failed to load from localStorage:', e);
-  }
-  return false;
-}
-
 function showSaveIndicator() {
   const status = document.querySelector('.sync-status');
   if (!status) return;
-  status.innerHTML = '<span class="dot"></span>Saved to browser storage';
+  status.innerHTML = '<span class="dot"></span>Saved';
   clearTimeout(saveIndicatorTimer);
   saveIndicatorTimer = setTimeout(() => {
     updateSyncUI();
@@ -249,10 +225,11 @@ function parseImportFile(file) {
   });
 }
 
-function validateImportRows(rawRows, yearKey, sem, activeCourse, existingRows, hasComponentColumns, componentMismatch) {
+function validateImportRows(rawRows, yearKey, sem, activeCourse, existingRows, hasComponentColumns, componentMismatch, studentRosterList) {
   const errors = [];
   const fileErrors = [];
   const valid = [];
+  const warnings = [];
   const seenPairs = new Set();
   const existingRegs = new Set();
 
@@ -278,6 +255,25 @@ function validateImportRows(rawRows, yearKey, sem, activeCourse, existingRows, h
     if (!reg) rowErrors.push('Reg No is required.');
     else if (!/^\d{11}$/.test(reg)) rowErrors.push('Reg No must be exactly 11 digits.');
 
+    const rowWarnings = [];
+
+    // Roster mismatch checks: match by reg_no against the student roster
+    if (reg && studentRosterList && studentRosterList.length) {
+      const rosterEntry = studentRosterList.find(s => (s.reg_no || '').trim() === reg);
+      if (rosterEntry) {
+        const fileStudentName = String(row.name || '').trim();
+        const rosterName = (rosterEntry.full_name || '').trim();
+        if (fileStudentName && rosterName && fileStudentName.toLowerCase() !== rosterName.toLowerCase()) {
+          rowWarnings.push(`Name mismatch: file has "${fileStudentName}" but roster has "${rosterName}". Roster name will be used.`);
+        }
+        const fileProgram = String(row.program || '').trim();
+        const rosterProgram = (rosterEntry.program || '').trim();
+        if (fileProgram && rosterProgram && fileProgram.toLowerCase() !== rosterProgram.toLowerCase()) {
+          rowWarnings.push(`Program mismatch: file has "${fileProgram}" but roster has "${rosterProgram}". Roster program will be kept.`);
+        }
+      }
+    }
+
     if (activeCourse) {
       // Importing into a specific course: only Reg No + Score are required.
       // Course Code/Title/Unit come from the course context, not the file.
@@ -292,6 +288,14 @@ function validateImportRows(rawRows, yearKey, sem, activeCourse, existingRows, h
       if (reg && existingRegs.has(reg)) {
         rowErrors.push(`Duplicate: reg no ${reg} already exists in this course — will be skipped.`);
       }
+      // Require student to exist on the Class Roster. Full Name in the file
+      // is ignored — identity is sourced from the roster only.
+      if (reg && studentRosterList && studentRosterList.length) {
+        const rosterEntry = studentRosterList.find(s => (s.reg_no || '').trim() === reg);
+        if (!rosterEntry) {
+          rowErrors.push(`Reg No ${reg} is not on your Class Roster — add them via Settings → Class Roster first.`);
+        }
+      }
     } else {
       // Flat-table import (no active course): all columns required
       if (!code) rowErrors.push('Course Code is required.');
@@ -300,6 +304,13 @@ function validateImportRows(rawRows, yearKey, sem, activeCourse, existingRows, h
       } else {
         const unitNum = parseFloat(unitRaw);
         if (isNaN(unitNum) || unitNum <= 0) rowErrors.push('Credit Unit must be a number greater than 0.');
+      }
+      // Also require the student to be on the Class Roster for all imports
+      if (reg && studentRosterList && studentRosterList.length) {
+        const rosterEntry = studentRosterList.find(s => (s.reg_no || '').trim() === reg);
+        if (!rosterEntry) {
+          rowErrors.push(`Reg No ${reg} is not on your Class Roster — add them via Settings → Class Roster first.`);
+        }
       }
     }
 
@@ -357,7 +368,8 @@ function validateImportRows(rawRows, yearKey, sem, activeCourse, existingRows, h
         lab_score: hasComponentColumns ? (row.lab_score === '' || row.lab_score === null || row.lab_score === undefined ? '' : String(row.lab_score)) : '',
         exam_score: hasComponentColumns ? (row.exam_score === '' || row.exam_score === null || row.exam_score === undefined ? '' : String(row.exam_score)) : '',
         program: String(row.program || '').trim(),
-        remark: String(row.remark || '').trim()
+        remark: String(row.remark || '').trim(),
+        warnings: rowWarnings
       });
     }
   });
@@ -375,6 +387,10 @@ function renderImportPreview(parsed, yearKey, sem, activeCourse) {
   const componentHeaders = hasComponentCols
     ? `<th>Test</th><th>Lab</th><th>Exam</th>`
     : '';
+  const hasWarnings = parsed.valid.some(r => r.warnings && r.warnings.length);
+  const warningCount = parsed.valid.reduce((sum, r) => sum + (r.warnings ? r.warnings.length : 0), 0);
+  const showRosterStatus = !!activeCourse;
+  const rosterStatusHeader = showRosterStatus ? '<th>Status</th>' : '';
   overlay.innerHTML = `
     <div class="import-modal">
       <h3>Import preview — ${yearKey} · ${sem}${courseTag}</h3>
@@ -399,13 +415,32 @@ function renderImportPreview(parsed, yearKey, sem, activeCourse) {
           </ul>
         </div>
       ` : ''}
+      ${hasWarnings ? `
+        <div class="import-warnings">
+          <strong>Mismatches found (${warningCount})</strong>
+          <ul>
+            ${parsed.valid.filter(r => r.warnings && r.warnings.length).map(r => `<li><b>${r.regNo}</b>: ${r.warnings.join(' ')}</li>`).join('')}
+          </ul>
+          <p class="settings-note">These rows will be imported using the roster's existing values for name and program. Click "Import" to confirm.</p>
+        </div>
+      ` : ''}
       <div class="import-table-wrap">
         <table>
           <thead>
-            <tr><th>Reg No</th><th>Student Name</th><th>Code</th><th>Course Title</th><th>Unit</th>${componentHeaders}<th>Score</th><th>Program</th><th>Remark</th></tr>
+            <tr><th>Reg No</th><th>Student Name</th><th>Code</th><th>Course Title</th><th>Unit</th>${componentHeaders}<th>Score</th><th>Program</th><th>Remark</th>${rosterStatusHeader}</tr>
           </thead>
           <tbody>
-            ${parsed.valid.map(r => `<tr><td>${escHtml(r.regNo)}</td><td>${escHtml(r.name)}</td><td>${escHtml(r.code)}</td><td>${escHtml(r.title)}</td><td>${escHtml(r.unit)}</td>${hasComponentCols ? `<td>${escHtml(r.test_score)}</td><td>${escHtml(r.lab_score)}</td><td>${escHtml(r.exam_score)}</td>` : ''}<td>${escHtml(r.score)}</td><td>${escHtml(r.program)}</td><td>${escHtml(r.remark)}</td></tr>`).join('')}
+            ${parsed.valid.map(r => {
+              // Check if this student is on the roster
+              let rosterStatusHtml = '';
+              if (showRosterStatus && studentRoster.all) {
+                const onRoster = studentRoster.all.some(s => (s.reg_no || '').trim() === (r.regNo || '').trim());
+                rosterStatusHtml = onRoster
+                  ? '<td><span style="color:var(--ok);font-size:11px">On roster</span></td>'
+                  : '<td><span style="color:var(--red);font-size:11px">Not on roster — skipped</span></td>';
+              }
+              return `<tr><td>${escHtml(r.regNo)}</td><td>${escHtml(r.name)}</td><td>${escHtml(r.code)}</td><td>${escHtml(r.title)}</td><td>${escHtml(r.unit)}</td>${hasComponentCols ? `<td>${escHtml(r.test_score)}</td><td>${escHtml(r.lab_score)}</td><td>${escHtml(r.exam_score)}</td>` : ''}<td>${escHtml(r.score)}</td><td>${escHtml(r.program)}</td><td>${escHtml(r.remark)}</td>${rosterStatusHtml}</tr>`;
+            }).join('')}
           </tbody>
         </table>
       </div>
@@ -430,7 +465,14 @@ async function commitImport(rows, yearKey, sem) {
   if (!rows.length) return;
   let updated = 0;
   let inserted = 0;
-  rows.forEach(r => {
+  let skipped = 0;
+
+  // Ensure student roster is loaded
+  if (!studentRoster.loaded) {
+    await loadStudents();
+  }
+
+  for (const r of rows) {
     const newRow = { ...emptyRow(), ...r };
 
     // If importing from within a course roster, link rows to the active course
@@ -442,6 +484,28 @@ async function commitImport(rows, yearKey, sem) {
         newRow.title = course.course_title || '';
         newRow.unit = course.credit_unit ?? '';
         newRow.course_id = course.id;
+      }
+    }
+
+    // Match against the student roster by reg_no
+    const regNoTrimmed = (newRow.regNo || '').trim();
+    if (regNoTrimmed) {
+      const rosterEntry = studentRoster.all.find(s => (s.reg_no || '').trim() === regNoTrimmed);
+      if (rosterEntry) {
+        // Existing roster student: link to student_id, use roster's canonical name
+        newRow.studentId = rosterEntry.id;
+        newRow.name = rosterEntry.full_name || newRow.name;
+        // Use roster program if available, fall back to file program
+        if (rosterEntry.program) {
+          newRow.program = rosterEntry.program;
+        }
+      } else {
+        // Student not on the roster: skip this row — do not auto-create
+        // a roster entry during bulk import. Errors were flagged in the
+        // preview; here we simply skip to the next row.
+        console.warn(`Skipping import row for reg ${regNoTrimmed} — not on Class Roster`);
+        skipped++;
+        continue;
       }
     }
 
@@ -459,12 +523,13 @@ async function commitImport(rows, yearKey, sem) {
       scheduleSave(yearKey, sem, idx);
       inserted++;
     }
-  });
+  }
   saveToLocalStorage();
   render();
   const parts = [];
   if (inserted) parts.push(`${inserted} inserted`);
   if (updated) parts.push(`${updated} updated`);
+  if (skipped) parts.push(`${skipped} skipped (not on roster)`);
   alert(`${parts.join(', ')}.`);
 }
 
@@ -508,7 +573,12 @@ async function handleImportFile(input, yearKey, sem) {
       ? state.years[yearKey][sem].filter(r => r.course_id === activeCourse.id)
       : [];
 
-    const parsed = validateImportRows(mapped, yearKey, sem, activeCourse, existingRows, hasComponentColumns, componentMismatch);
+    // Ensure student roster is loaded for mismatch checks
+    if (!studentRoster.loaded) {
+      await loadStudents();
+    }
+
+    const parsed = validateImportRows(mapped, yearKey, sem, activeCourse, existingRows, hasComponentColumns, componentMismatch, studentRoster.all);
     if (!parsed.valid.length && (parsed.errors.length || parsed.fileErrors.length)) {
       if (parsed.fileErrors.length) {
         alert(parsed.fileErrors.join('\n'));
@@ -671,15 +741,22 @@ function renderCourseRoster(yearKey, sem) {
   });
 
    const semSlug = sem.replace(/\s+/g, '-');
-  const emptyColspan = course.use_score_components ? 14 : 11;
+  const emptyColspan = course.use_score_components ? 13 : 10;
   let rowsHtml = '';
 
   if (matched.length === 0) {
-    rowsHtml = `<tr class="empty-row"><td colspan="${emptyColspan}">No students added yet — add a row below or import from file.</td></tr>`;
+    rowsHtml = `<tr class="empty-row"><td colspan="${emptyColspan}">No students added yet — add a student below or import from file.</td></tr>`;
   } else {
     matched.forEach(({ r, idx }, sn) => {
       const gi = gradeInfo(r.score);
       const carryBadge = r.isCarryover ? ' <span class="carry-badge">C/O</span>' : '';
+      const hasStudentId = !!r.studentId;
+      const regNoCell = hasStudentId
+        ? `<td>${escHtml(r.regNo)}</td>`
+        : `<td><input value="${escAttr(r.regNo)}" placeholder="Reg No" maxlength="11" inputmode="numeric" pattern="\d{11}" oninput="updateCell('${yearKey}','${sem}',${idx},'regNo',sanitizeRegNo(this.value))" onblur="validateRegNo(this)"><span class="reg-no-warn" id="regNoWarn-${yearKey}-${sem}-${idx}" style="color:var(--red);font-size:11px"></span></td>`;
+      const nameCell = hasStudentId
+        ? `<td>${escHtml(r.name)}</td>`
+        : `<td><input value="${escAttr(r.name)}" placeholder="Student name" oninput="updateCell('${yearKey}','${sem}',${idx},'name',this.value)"></td>`;
       if (course.use_score_components) {
         const testVal = r.test_score !== undefined && r.test_score !== null && r.test_score !== '' ? escAttr(r.test_score) : '';
         const labVal = r.lab_score !== undefined && r.lab_score !== null && r.lab_score !== '' ? escAttr(r.lab_score) : '';
@@ -688,9 +765,8 @@ function renderCourseRoster(yearKey, sem) {
         rowsHtml += `
           <tr>
             <td class="sn-cell">${sn + 1}</td>
-            <td><input value="${escAttr(r.regNo)}" placeholder="Reg No" maxlength="11" inputmode="numeric" pattern="\d{11}" oninput="updateCell('${yearKey}','${sem}',${idx},'regNo',sanitizeRegNo(this.value))" onblur="validateRegNo(this)"><span class="reg-no-warn" id="regNoWarn-${yearKey}-${sem}-${idx}" style="color:var(--red);font-size:11px"></span></td>
-            <td><input value="${escAttr(r.name)}" placeholder="Student name" oninput="updateCell('${yearKey}','${sem}',${idx},'name',this.value)"></td>
-            <td><input value="${escAttr(r.program)}" placeholder="Program" oninput="updateCell('${yearKey}','${sem}',${idx},'program',this.value)"></td>
+            ${regNoCell}
+            ${nameCell}
             <td><input value="${escAttr(r.remark)}" placeholder="Remark" oninput="updateCell('${yearKey}','${sem}',${idx},'remark',this.value)"></td>
             <td class="narrow"><input type="number" value="${testVal}" placeholder="Test" min="0" oninput="updateComponent('${yearKey}','${sem}',${idx},'test_score',this.value)"></td>
             <td class="narrow"><input type="number" value="${labVal}" placeholder="Lab" min="0" oninput="updateComponent('${yearKey}','${sem}',${idx},'lab_score',this.value)"></td>
@@ -707,9 +783,8 @@ function renderCourseRoster(yearKey, sem) {
         rowsHtml += `
           <tr>
             <td class="sn-cell">${sn + 1}</td>
-            <td><input value="${escAttr(r.regNo)}" placeholder="Reg No" maxlength="11" inputmode="numeric" pattern="\d{11}" oninput="updateCell('${yearKey}','${sem}',${idx},'regNo',sanitizeRegNo(this.value))" onblur="validateRegNo(this)"><span class="reg-no-warn" id="regNoWarn-${yearKey}-${sem}-${idx}" style="color:var(--red);font-size:11px"></span></td>
-            <td><input value="${escAttr(r.name)}" placeholder="Student name" oninput="updateCell('${yearKey}','${sem}',${idx},'name',this.value)"></td>
-            <td><input value="${escAttr(r.program)}" placeholder="Program" oninput="updateCell('${yearKey}','${sem}',${idx},'program',this.value)"></td>
+            ${regNoCell}
+            ${nameCell}
             <td><input value="${escAttr(r.remark)}" placeholder="Remark" oninput="updateCell('${yearKey}','${sem}',${idx},'remark',this.value)"></td>
             <td class="narrow"><input type="number" value="${escAttr(r.score)}" placeholder="Score" oninput="updateScore('${yearKey}','${sem}',${idx},this.value)"></td>
             <td class="grade-cell grade-${gi.grade}" id="grade-${yearKey}-${sem}-${idx}">${gi.grade}</td>
@@ -729,15 +804,16 @@ function renderCourseRoster(yearKey, sem) {
       <div class="semester-head">
         <h3>${sem}</h3>
          <div class="toolbar">
-           <button class="btn gold" onclick="addRow('${yearKey}','${sem}')">+ Add student row</button>
-           <button class="btn secondary" onclick="document.getElementById('import-${yearKey}-${semSlug}').click()">Import from file</button>
-           <input type="file" id="import-${yearKey}-${semSlug}" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleImportFile(this, '${yearKey}', '${sem}')">
-           <label class="checkbox-row" style="display:inline-flex;align-items:center;font-size:12px;color:var(--muted)" onclick="toggleCourseMode('${course.id}', event)">
-           <input type="checkbox" id="mode-toggle-${course.id}" ${course.use_score_components ? 'checked' : ''} style="margin-right:4px">Use Test/Lab/Exam breakdown</label>
-           <button class="btn gold" onclick="exportCourseExcel('${course.id}', '${escAttr(course.course_code)}', '${yearKey}', '${sem}')">Export to Excel</button>
-           <button class="btn secondary" onclick="printCourse('${course.id}')">Print / PDF</button>
-           <button class="btn secondary" onclick="closeCourseRoster()">← Back to courses</button>
-         </div>
+            <button class="btn gold" onclick="showAddStudentModal('${yearKey}','${sem}',false)">+ Add student to course</button>
+            <button class="btn secondary" onclick="showAddStudentModal('${yearKey}','${sem}',true)">Add carry-over student</button>
+            <button class="btn secondary" onclick="document.getElementById('import-${yearKey}-${semSlug}').click()">Import from file</button>
+            <input type="file" id="import-${yearKey}-${semSlug}" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleImportFile(this, '${yearKey}', '${sem}')">
+            <label class="checkbox-row" style="display:inline-flex;align-items:center;font-size:12px;color:var(--muted)" onclick="toggleCourseMode('${course.id}', event)">
+            <input type="checkbox" id="mode-toggle-${course.id}" ${course.use_score_components ? 'checked' : ''} style="margin-right:4px">Use Test/Lab/Exam breakdown</label>
+            <button class="btn gold" onclick="exportCourseExcel('${course.id}', '${escAttr(course.course_code)}', '${yearKey}', '${sem}')">Export to Excel</button>
+            <button class="btn secondary" onclick="printCourse('${course.id}')">Print / PDF</button>
+            <button class="btn secondary" onclick="closeCourseRoster()">← Back to courses</button>
+          </div>
       </div>
 
       <div class="course-roster-header">
@@ -753,7 +829,6 @@ function renderCourseRoster(yearKey, sem) {
             <th style="width:4%">S/N</th>
             <th style="width:12%">Reg No</th>
             <th style="width:18%">Student Name</th>
-            <th style="width:10%">Program</th>
             <th style="width:10%">Remark</th>
             ${course.use_score_components
               ? `<th style="width:6%">Test</th><th style="width:6%">Lab</th><th style="width:6%">Exam</th><th style="width:6%">Total</th>`
@@ -978,6 +1053,140 @@ function addRow(yearKey, sem) {
   }
   state.years[yearKey][sem].push(row);
   saveToLocalStorage();
+  render();
+}
+
+/* ===================== ADD STUDENT TO COURSE ===================== */
+const studentSearchState = { select: null, modal: null };
+
+function showAddStudentModal(yearKey, sem, isCarryover) {
+  if (!state.activeCourse || state.activeCourse.yearKey !== yearKey || state.activeCourse.sem !== sem) return;
+
+  const course = (state.courses[yearKey]?.[sem] || []).find(c => c.id === state.activeCourse.courseId);
+  const modeLabel = isCarryover ? 'Add carry-over student' : 'Add student to course';
+
+  const overlay = document.createElement('div');
+  overlay.className = 'student-search-overlay';
+  overlay.innerHTML = `
+    <div class="student-search-modal">
+      <h3>${escHtml(modeLabel)} — ${escHtml(course?.course_code || '')}</h3>
+      <p class="student-search-note">Search for a student by registration number or name.</p>
+      <div id="addStudentRegNoContainer"></div>
+      <div id="addStudentNameDisplay" style="margin:12px 0;font-weight:600;color:var(--ink)"></div>
+      <div class="student-search-actions">
+        <button class="btn gold" id="confirmAddStudentBtn" disabled>Add to course</button>
+        <button class="btn secondary" id="cancelAddStudentBtn">Cancel</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const regNoContainer = document.getElementById('addStudentRegNoContainer');
+  studentSearchState.select = createSearchableSelect(regNoContainer, {
+    inputId: 'addStudentRegNo',
+    placeholder: 'Search by Reg No or name…',
+    optionLabel: 'full_name',
+    optionSublabel: 'reg_no',
+    options: [],
+    defaultValue: '',
+    asyncProvider: async (term) => {
+      const results = await loadStudents(term);
+      return results;
+    },
+    onOptionSelect: (student) => {
+      document.getElementById('addStudentNameDisplay').textContent = `${student.full_name || ''} (${student.reg_no || ''})`;
+      studentSearchState.selectedStudent = student;
+      const confirmBtn = document.getElementById('confirmAddStudentBtn');
+      if (confirmBtn) confirmBtn.disabled = false;
+    },
+    onNoMatchCreate: async (regNo) => {
+      createNewStudentFromRegNo(regNo, yearKey, sem, isCarryover, overlay);
+    },
+    onInputClear: () => {
+      studentSearchState.selectedStudent = null;
+      const display = document.getElementById('addStudentNameDisplay');
+      if (display) display.textContent = '';
+      const confirmBtn = document.getElementById('confirmAddStudentBtn');
+      if (confirmBtn) confirmBtn.disabled = true;
+    }
+  });
+
+  studentSearchState.modal = overlay;
+  studentSearchState.selectedStudent = null;
+  studentSearchState.isCarryover = isCarryover;
+  studentSearchState.yearKey = yearKey;
+  studentSearchState.sem = sem;
+
+  document.getElementById('cancelAddStudentBtn').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+  document.getElementById('confirmAddStudentBtn').addEventListener('click', () => {
+    const student = studentSearchState.selectedStudent;
+    if (!student) return;
+    addStudentResultRow(student, yearKey, sem, isCarryover);
+    overlay.remove();
+  });
+}
+
+function createNewStudentFromRegNo(regNo, yearKey, sem, isCarryover, overlay) {
+  const regNoTrimmed = regNo.trim();
+  if (!/^\d{11}$/.test(regNoTrimmed)) {
+    alert('Registration number must be exactly 11 digits.');
+    return;
+  }
+
+  const name = prompt(`Enter the full name for Reg No ${regNoTrimmed}:`);
+  if (!name || !name.trim()) {
+    alert('Full name is required to create a new student.');
+    return;
+  }
+
+  const program = prompt(`Enter the program for ${name.trim()} (optional — press Cancel to skip):`) || '';
+
+  showLoading('Adding student to roster…');
+  createStudent(regNoTrimmed, name.trim(), program.trim())
+    .then(student => {
+      hideLoading();
+      addStudentResultRow(student, yearKey, sem, isCarryover);
+      if (overlay) overlay.remove();
+      studentRoster.loaded = false;
+    })
+    .catch(err => {
+      hideLoading();
+      console.error('Failed to create student:', err.message);
+      alert('Failed to create student. ' + err.message);
+    });
+}
+
+function addStudentResultRow(student, yearKey, sem, isCarryover) {
+  const row = emptyRow();
+  row.regNo = student.reg_no || '';
+  row.name = student.full_name || '';
+  row.studentId = student.id;
+  row.program = student.program || '';
+
+  // Pre-fill course metadata from the active course
+  if (state.activeCourse && state.activeCourse.yearKey === yearKey && state.activeCourse.sem === sem) {
+    const courses = state.courses[yearKey]?.[sem] || [];
+    const course = courses.find(c => c.id === state.activeCourse.courseId);
+    if (course) {
+      row.code = course.course_code || '';
+      row.title = course.course_title || '';
+      row.unit = course.credit_unit ?? '';
+      row.course_id = course.id;
+    }
+  }
+
+  if (isCarryover) {
+    row.isCarryover = true;
+  }
+
+  state.years[yearKey][sem].push(row);
+  saveToLocalStorage();
+  // Save remotely if signed in
+  if (currentUser && accessToken && row.id === null) {
+    scheduleSave(yearKey, sem, state.years[yearKey][sem].length - 1);
+  }
   render();
 }
 
@@ -1218,7 +1427,7 @@ function excelSetRowHeights(sheet, headerRowNum, dataCount, headerHeight, dataHe
 }
 
 function excelShouldIncludeProgramData(rows) {
-  return (rows || []).some(r => (r.program || '').trim() !== '' || (r.remark || '').trim() !== '');
+  return (rows || []).some(r => (resolveProgram(r) || '').trim() !== '' || (r.remark || '').trim() !== '');
 }
 
 async function exportCourseExcel(courseId, courseCode, yearKey, sem) {
@@ -1248,7 +1457,7 @@ async function exportCourseExcel(courseId, courseCode, yearKey, sem) {
   });
 
   // Build headers: S/N | Full Name | Reg No | [Program] | <Score or Test|Lab|Exam|Total> | Grade | [Remark]
-  const includeProgram = (sortedRows || []).some(r => (r.program || '').trim() !== '');
+  const includeProgram = (sortedRows || []).some(r => (resolveProgram(r) || '').trim() !== '');
   const includeRemark = (sortedRows || []).some(r => (r.remark || '').trim() !== '');
   const headers = ['S/N', 'Full Name', 'Reg No'];
   if (includeProgram) headers.push('Program');
@@ -1295,7 +1504,7 @@ async function exportCourseExcel(courseId, courseCode, yearKey, sem) {
     excelRow.getCell(col++).value = r.name;
     excelRow.getCell(col++).value = r.regNo;
     if (includeProgram) {
-      excelRow.getCell(col++).value = r.program || '';
+       excelRow.getCell(col++).value = resolveProgram(r) || '';
     }
     if (useComponents) {
       excelRow.getCell(col++).value = r.test_score !== '' && r.test_score !== null && r.test_score !== undefined ? parseFloat(r.test_score) : null;
@@ -1311,7 +1520,7 @@ async function exportCourseExcel(courseId, courseCode, yearKey, sem) {
     }
     excelStyleDataRow(excelRow, colCount);
     const rowData = [idx + 1, r.name, r.regNo];
-    if (includeProgram) rowData.push(r.program || '');
+    if (includeProgram) rowData.push(resolveProgram(r) || '');
     if (useComponents) {
       rowData.push(
         r.test_score !== '' && r.test_score !== null && r.test_score !== undefined ? parseFloat(r.test_score) : null,
@@ -1685,6 +1894,7 @@ async function replayOfflineQueue() {
     if (currentUser && accessToken) {
       await loadFromApi();
       await loadCourses();
+      await loadStudents();
       render();
     }
   }
@@ -1694,7 +1904,7 @@ async function saveRowRemote(yearKey, sem, idx) {
    if (!currentUser || !accessToken) return;
    const row = state.years[yearKey][sem][idx];
    if (!row) return;
-      if (!row.regNo && !row.name && !row.code && !row.title && !row.unit && !row.score && !row.test_score && !row.lab_score && !row.exam_score) return;
+       if (!row.regNo && !row.name && !row.code && !row.title && !row.unit && !row.score && !row.test_score && !row.lab_score && !row.exam_score && !row.studentId) return;
 
   // Skip saving while the reg_no is still being typed (partial entry).
   // The server enforces 11-digit format; sending a partial value only
@@ -1734,6 +1944,7 @@ async function saveRowRemote(yearKey, sem, idx) {
     exam_score: row.exam_score === '' ? null : (row.exam_score !== undefined && row.exam_score !== null ? parseFloat(row.exam_score) : null),
     is_carryover: !!row.isCarryover,
     course_id: row.course_id || null,
+    student_id: row.studentId || null,
     program: row.program || null,
     remark: row.remark || null
   };
@@ -1787,6 +1998,7 @@ async function loadFromApi() {
         exam_score: row.exam_score ?? '',
         isCarryover: !!row.is_carryover,
         course_id: row.course_id || null,
+        studentId: row.student_id || null,
         program: row.program || '',
         remark: row.remark || ''
       });
@@ -1826,6 +2038,40 @@ async function loadCourses() {
   }
 }
 
+/* ===================== STUDENT ROSTER ===================== */
+let studentRoster = { all: [], loaded: false };
+
+async function loadStudents(search) {
+  try {
+    const url = search
+      ? `/api/students?search=${encodeURIComponent(search)}`
+      : '/api/students';
+    const data = await apiFetch(url);
+    studentRoster.all = data || [];
+    studentRoster.loaded = true;
+    return data || [];
+  } catch (err) {
+    console.error('Students load failed:', err.message);
+    return [];
+  }
+}
+
+async function lookupStudentByRegNo(regNo) {
+  try {
+    const data = await apiFetch(`/api/students/reg/${encodeURIComponent(regNo)}`);
+    return data;
+  } catch (err) {
+    return null;
+  }
+}
+
+async function createStudent(regNo, fullName, program) {
+  return await apiFetch('/api/students', {
+    method: 'POST',
+    body: JSON.stringify({ reg_no: regNo, full_name: fullName, program: program || null })
+  });
+}
+
 function updateSyncUI() {
   const chip = document.getElementById('userChip');
   const status = document.querySelector('.sync-status');
@@ -1840,7 +2086,7 @@ function updateSyncUI() {
     if (currentUser) {
       status.innerHTML = '<span class="dot"></span>Signed in — synced via API';
     } else {
-      status.innerHTML = '<span class="dot"></span>Working locally — saved to browser storage';
+      status.style.display = 'none';
     }
   }
 }
@@ -1852,33 +2098,38 @@ async function initApp() {
     if (session) {
       currentUser = session.user;
       accessToken = session.access_token;
+      // Reveal the app now that the session is confirmed
+      const gate = document.getElementById('appLoadingGate');
+      if (gate) gate.style.display = 'none';
+      const app = document.getElementById('app');
+      if (app) app.style.display = '';
+      updateSyncUI();
       showLoading('Loading your results…');
       try {
         await loadFromApi();
         await loadCourses();
+        await loadStudents();
         await loadSettings();
       } finally {
         hideLoading();
       }
+      switchView('Dashboard');
+      window.addEventListener('online', () => {
+        updateSyncUI();
+        replayOfflineQueue();
+      });
+      window.addEventListener('offline', updateSyncUI);
     } else {
-      loadFromLocalStorage();
+      window.location.href = 'login.html';
     }
   } else {
-    loadFromLocalStorage();
+    window.location.href = 'login.html';
   }
-  updateSyncUI();
-  switchView('Dashboard');
-
-  window.addEventListener('online', () => {
-    updateSyncUI();
-    replayOfflineQueue();
-  });
-  window.addEventListener('offline', updateSyncUI);
 }
 
 async function signOut() {
   if (supabaseClient) await supabaseClient.auth.signOut();
-  window.location.href = 'index.html';
+  window.location.href = 'login.html';
 }
 
 /* ===================== DASHBOARD VIEW ===================== */
@@ -2360,11 +2611,510 @@ function attachSettingsHandlers() {
       btn.innerHTML = isPassword
         ? '<svg viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>'
         : '<svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>';
+      });
+  });
+
+  const rosterSearch = document.getElementById('rosterSearch');
+  if (rosterSearch) {
+    let rosterTimer = null;
+    rosterSearch.addEventListener('input', () => {
+      clearTimeout(rosterTimer);
+      rosterTimer = setTimeout(async () => {
+        const term = rosterSearch.value.trim();
+        await refreshClassRoster(term || undefined);
+      }, 300);
+    });
+  }
+
+  const addRosterBtn = document.getElementById('addRosterStudentBtn');
+  if (addRosterBtn) addRosterBtn.addEventListener('click', showAddRosterStudentModal);
+
+  const importRosterBtn = document.getElementById('importRosterBtn');
+  if (importRosterBtn) {
+    importRosterBtn.addEventListener('click', () => {
+      document.getElementById('importRosterFile').click();
+    });
+  }
+
+  refreshClassRoster();
+}
+
+async function refreshClassRoster(search) {
+  const body = document.getElementById('rosterTableBody');
+  if (!body) return;
+
+  try {
+    const data = await apiFetch(search ? `/api/students?search=${encodeURIComponent(search)}` : '/api/students');
+    studentRoster.all = data || [];
+    renderClassRosterTable();
+  } catch (err) {
+    body.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--red)">Failed to load roster: ${err.message}</td></tr>`;
+  }
+}
+
+function renderClassRosterTable() {
+  const body = document.getElementById('rosterTableBody');
+  if (!body) return;
+
+  const rows = studentRoster.all || [];
+  if (rows.length === 0) {
+    body.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--muted)">No students found.</td></tr>`;
+    return;
+  }
+
+  body.innerHTML = rows.map(s => `
+    <tr data-student-id="${s.id}">
+      <td>${escHtml(s.reg_no)}</td>
+      <td class="roster-editable"><input type="text" value="${escAttr(s.full_name)}" data-field="full_name" placeholder="Full name"></td>
+      <td class="roster-editable"><input type="text" value="${escAttr(s.program || '')}" data-field="program" placeholder="Program"></td>
+      <td style="text-align:center">${s.courseCount || 0}</td>
+      <td class="roster-save-btns">
+        <button class="btn secondary" style="font-size:11px;padding:2px 8px" onclick="saveStudentEdit('${s.id}')">Save</button>
+        <button class="btn secondary" style="font-size:11px;padding:2px 8px" onclick="deleteStudent('${s.id}')" title="Delete student">Delete</button>
+      </td>
+    </tr>
+  `).join('');
+
+  // Attach per-row edit listeners
+  rows.forEach(s => {
+    const row = body.querySelector(`tr[data-student-id="${s.id}"]`);
+    if (!row) return;
+    const nameInput = row.querySelector('input[data-field="full_name"]');
+    const progInput = row.querySelector('input[data-field="program"]');
+    [nameInput, progInput].forEach(input => {
+      if (!input) return;
+      let timer = null;
+      input.addEventListener('input', () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => saveStudentEdit(s.id), 600);
+      });
     });
   });
 }
 
-let lastTranscript = null;
+async function saveStudentEdit(id) {
+  const row = document.querySelector(`tr[data-student-id="${id}"]`);
+  if (!row) return;
+  const nameInput = row.querySelector('input[data-field="full_name"]');
+  const progInput = row.querySelector('input[data-field="program"]');
+  const fullName = nameInput ? nameInput.value.trim() : '';
+  const program = progInput ? progInput.value.trim() : '';
+
+  if (!fullName) {
+    alert('Full name is required.');
+    return;
+  }
+
+  try {
+    const data = await apiFetch(`/api/students/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ full_name: fullName, program: program })
+    });
+    // Update local roster cache
+    const idx = studentRoster.all.findIndex(s => s.id === id);
+    if (idx >= 0) {
+      studentRoster.all[idx].full_name = data.full_name;
+      studentRoster.all[idx].program = data.program;
+      // Re-render to reflect updated values
+      renderClassRosterTable();
+    }
+    const statusEl = document.getElementById('rosterStatus');
+    if (statusEl) { statusEl.textContent = 'Saved.'; statusEl.style.color = 'var(--ok)'; setTimeout(() => statusEl.textContent = '', 1500); }
+  } catch (err) {
+    console.error('Student edit failed:', err.message);
+    alert('Failed to save: ' + err.message);
+  }
+}
+
+async function deleteStudent(id) {
+  const row = document.querySelector(`tr[data-student-id="${id}"]`);
+  if (!row) return;
+  const regNo = row.cells[0].textContent || '';
+
+  if (!confirm(`Remove "${regNo}" from the roster? The student must have no results in any course.`)) return;
+
+  try {
+    await apiFetch(`/api/students/${id}`, { method: 'DELETE' });
+    // Remove from local roster cache
+    studentRoster.all = studentRoster.all.filter(s => s.id !== id);
+    renderClassRosterTable();
+    const statusEl = document.getElementById('rosterStatus');
+    if (statusEl) { statusEl.textContent = 'Removed.'; statusEl.style.color = 'var(--ok)'; setTimeout(() => statusEl.textContent = '', 1500); }
+  } catch (err) {
+    console.error('Student delete failed:', err.message);
+    alert(err.message || 'Failed to delete student.');
+  }
+}
+
+function showAddRosterStudentModal() {
+  const regNo = prompt('Enter Reg No (11 digits):');
+  if (!regNo || !regNo.trim()) return;
+  const regNoTrimmed = regNo.trim();
+  if (!/^\d{11}$/.test(regNoTrimmed)) {
+    alert('Reg No must be exactly 11 digits.');
+    return;
+  }
+
+  const name = prompt(`Enter the full name for Reg No ${regNoTrimmed}:`);
+  if (!name || !name.trim()) {
+    alert('Full name is required.');
+    return;
+  }
+
+  const program = prompt(`Enter the program for ${name.trim()} (optional — press Cancel to skip):`) || '';
+
+  showLoading('Adding student…');
+  createStudent(regNoTrimmed, name.trim(), program.trim())
+    .then(() => {
+      hideLoading();
+      refreshClassRoster();
+      const statusEl = document.getElementById('rosterStatus');
+      if (statusEl) { statusEl.textContent = 'Student added.'; statusEl.style.color = 'var(--ok)'; setTimeout(() => statusEl.textContent = '', 1500); }
+    })
+    .catch(err => {
+      hideLoading();
+      console.error('Failed to create student:', err.message);
+      alert('Failed to create student. ' + err.message);
+    });
+}
+
+/* ===================== STUDENT IMPORT FROM FILE ===================== */
+
+const STUDENT_IMPORT_FIELDS = [
+  { key: 'regNo', aliases: ['reg no', 'registration number', 'reg_number', 'regno', 'reg no.', 'registration no', 'matric', 'matric number', 'matric_no'] },
+  { key: 'name', aliases: ['student name', 'name', 'full name', 'student_name', 'fullname', 'full_name'] },
+  { key: 'program', aliases: ['program', 'program of study', 'programme', 'programme of study', 'department', 'dept'] }
+];
+
+function mapStudentRowFields(rawRow) {
+  const mapped = {};
+  const sourceKeys = Object.keys(rawRow);
+  sourceKeys.forEach(key => {
+    const norm = normalizeColumnName(key);
+    for (const field of STUDENT_IMPORT_FIELDS) {
+      if (field.aliases.includes(norm)) {
+        mapped[field.key] = rawRow[key];
+        return;
+      }
+    }
+    mapped[norm] = rawRow[key];
+  });
+  return mapped;
+}
+
+async function handleStudentImportFile(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+
+  try {
+    const rawRows = await parseImportFile(file);
+    if (!rawRows || !rawRows.length) {
+      alert('The uploaded file appears to be empty.');
+      input.value = '';
+      return;
+    }
+
+    const mapped = rawRows.map(r => mapStudentRowFields(r));
+    const hasRequired = mapped.some(r => r.regNo || r.name);
+    if (!hasRequired) {
+      alert('The uploaded file does not contain recognizable student columns (Reg No and/or Full Name).');
+      input.value = '';
+      return;
+    }
+
+    // Ensure student roster is loaded for preview comparison
+    if (!studentRoster.loaded) {
+      await loadStudents();
+    }
+
+    const parsed = validateStudentImportRows(mapped);
+    if (!parsed.valid.length && !parsed.conflictRows.length) {
+      alert('No valid student rows found. All rows have errors.');
+      input.value = '';
+      return;
+    }
+
+    renderStudentImportPreview(parsed);
+  } catch (err) {
+    alert(err.message || 'Failed to import file.');
+  } finally {
+    input.value = '';
+  }
+}
+
+function validateStudentImportRows(rawRows) {
+  const valid = [];
+  const errors = [];
+  const conflictRows = [];
+  const seenRegs = {};
+  const existingRegs = {};
+
+  // Build lookup of existing roster by reg_no
+  (studentRoster.all || []).forEach(s => {
+    const reg = (s.reg_no || '').trim();
+    if (reg) existingRegs[reg] = s;
+  });
+
+  rawRows.forEach((raw, idx) => {
+    const row = mapStudentRowFields(raw);
+    const rowErrors = [];
+    const rowWarnings = [];
+
+    const reg = String(row.regNo || '').trim();
+    const fullName = String(row.name || '').trim();
+    const program = String(row.program || '').trim();
+
+    // Reg No validation (same 11-digit rule as manual entry)
+    if (!reg) {
+      rowErrors.push('Reg No is required.');
+    } else if (!/^\d{11}$/.test(reg)) {
+      rowErrors.push('Reg No must be exactly 11 digits.');
+    }
+
+    if (!fullName) {
+      rowErrors.push('Full Name is required.');
+    }
+
+    // Duplicate-within-file detection
+    if (reg) {
+      if (seenRegs[reg] !== undefined) {
+        rowErrors.push(`Duplicate Reg No within file (also at row ${seenRegs[reg] + 1}).`);
+      } else {
+        seenRegs[reg] = idx;
+      }
+    }
+
+    // If there are basic errors, report them and move on
+    if (rowErrors.length > 0) {
+      errors.push({ index: idx, row: { regNo: reg, fullName, program }, errors: rowErrors });
+      return;
+    }
+
+    // Match against existing roster
+    if (reg && /^\d{11}$/.test(reg)) {
+      const existing = existingRegs[reg];
+      if (existing) {
+        // Check if name and program match
+        const rosterName = (existing.full_name || '').trim();
+        const rosterProgram = (existing.program || '').trim();
+
+        const nameMatch = fullName ? rosterName.toLowerCase() === fullName.toLowerCase() : true;
+        const programMatch = program ? rosterProgram.toLowerCase() === program.toLowerCase() : true;
+
+        if (nameMatch && programMatch) {
+          rowWarnings.push('Already on roster — no change.');
+          valid.push({
+            index: idx,
+            regNo: reg,
+            fullName,
+            program,
+            status: 'no-change',
+            warnings: rowWarnings
+          });
+          return;
+        }
+
+        // There is a mismatch — flag for explicit confirmation
+        conflictRows.push({
+          index: idx,
+          regNo: reg,
+          fullName,
+          program,
+          status: 'mismatch',
+          existing: { fullName: rosterName, program: rosterProgram, id: existing.id },
+          mismatchDetails: [
+            ...(!nameMatch ? [`name: file has "${fullName}" but roster has "${rosterName}"`] : []),
+            ...(!programMatch ? [`program: file has "${program || '(blank)'}" but roster has "${rosterProgram || '(blank)'}"`] : [])
+          ],
+          warnings: rowWarnings
+        });
+        return;
+      }
+      // Not on roster — new student
+      valid.push({
+        index: idx,
+        regNo: reg,
+        fullName,
+        program,
+        status: 'new',
+        warnings: rowWarnings
+      });
+    }
+  });
+
+  return {
+    total: rawRows.length,
+    valid,
+    conflictRows,
+    errors
+  };
+}
+
+function renderStudentImportPreview(parsed) {
+  const overlay = document.createElement('div');
+  overlay.className = 'import-overlay';
+  overlay.innerHTML = `
+    <div class="import-modal">
+      <h3>Student Import Preview</h3>
+      <p class="settings-note">Only Reg No, Full Name, and Program are read from the file. No other columns are used.</p>
+      <div class="import-summary">
+        <div><span class="num">${parsed.total}</span><span class="lbl">Total rows</span></div>
+        <div><span class="num ok">${parsed.valid.length}</span><span class="lbl">Valid (new + no-change)</span></div>
+        <div><span class="num warn">${parsed.conflictRows.length}</span><span class="lbl">Name/program mismatches</span></div>
+        <div><span class="num err">${parsed.errors.length}</span><span class="lbl">Invalid rows</span></div>
+      </div>
+
+      ${parsed.errors.length ? `
+        <div class="import-errors">
+          <strong>Errors</strong>
+          <ul>
+            ${parsed.errors.map(e => `<li><b>${e.index + 1}</b>: ${(e.errors || []).join(' ')}</li>`).join('')}</ul>
+        </div>
+      ` : ''}
+
+      ${parsed.conflictRows.length ? `
+        <div class="import-warnings">
+          <strong>Mismatches with existing roster (${parsed.conflictRows.length})</strong>
+          <p class="settings-note">These students already exist on your roster. Their name or program differs from the file. Choosing "Overwrite" will replace the roster's name and program for these students.</p>
+          <table style="width:100%;font-size:12.5px;border-collapse:collapse">
+            <thead><tr><th>Reg No</th><th>Name (file→roster)</th><th>Program (file→roster)</th></tr></thead>
+            <tbody>
+              ${parsed.conflictRows.map(c => `
+                <tr>
+                  <td>${escHtml(c.regNo)}</td>
+                  <td>${escHtml(c.fullName)} → ${escHtml(c.existing.fullName || '(blank)')}</td>
+                  <td>${escHtml(c.program || '(blank)')} → ${escHtml(c.existing.program || '(blank)')}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      ` : ''}
+
+      <div class="import-table-wrap">
+        <table>
+          <thead>
+            <tr><th>#</th><th>Reg No</th><th>Full Name</th><th>Program</th><th>Status</th></tr>
+          </thead>
+          <tbody>
+            ${parsed.valid.map(v => `
+              <tr>
+                <td>${v.index + 1}</td>
+                <td>${escHtml(v.regNo)}</td>
+                <td>${escHtml(v.fullName)}</td>
+                <td>${escHtml(v.program || '')}</td>
+                <td>
+                  ${v.status === 'new' ? '<span style="color:var(--ok);font-weight:600">New — will be added</span>' :
+                    v.status === 'no-change' ? '<span style="color:var(--muted)">Already on roster</span>' :
+                    '<span style="color:var(--ink)">Add</span>'}
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="import-actions">
+        <button class="btn gold" id="confirmRosterImportBtn">Import students</button>
+        <button class="btn secondary" id="cancelRosterImportBtn">Cancel</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  document.getElementById('cancelRosterImportBtn').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+  document.getElementById('confirmRosterImportBtn').addEventListener('click', async () => {
+    const confirmBtn = document.getElementById('confirmRosterImportBtn');
+    const hasConflicts = parsed.conflictRows.length > 0;
+    let overwrite = false;
+    if (hasConflicts) {
+      if (!confirm("This import includes students whose name or program differs from your existing roster. Overwrite the roster's existing data for these students?")) {
+        return;
+      }
+      overwrite = true;
+    }
+    overlay.remove();
+    await commitStudentImport(parsed.valid, parsed.conflictRows, overwrite);
+  });
+}
+
+async function commitStudentImport(validRows, conflictRows, overwrite) {
+  let added = 0;
+  let skipped = 0;
+  let updated = 0;
+
+  // Build lookup of existing students by reg_no
+  let existingMap = {};
+  (studentRoster.all || []).forEach(s => {
+    const reg = (s.reg_no || '').trim();
+    if (reg) existingMap[reg] = s;
+  });
+
+  const toProcess = [];
+  validRows.forEach(v => {
+    toProcess.push({ regNo: v.regNo, fullName: v.fullName, program: v.program, status: v.status });
+  });
+  if (overwrite) {
+    conflictRows.forEach(c => {
+      toProcess.push({ regNo: c.regNo, fullName: c.fullName, program: c.program, status: 'overwrite', existingId: c.existing.id });
+    });
+  }
+
+  showLoading(`${toProcess.length} students…`);
+  try {
+    for (const item of toProcess) {
+      try {
+        if (item.status === 'new' || item.status === 'add') {
+          try {
+            await createStudent(item.regNo, item.fullName, item.program || '');
+            added++;
+          } catch (err) {
+            if (err.message && err.message.includes('409')) {
+              // Race condition — student was added between preview and commit
+              skipped++;
+            } else {
+              console.error('Student import create failed:', err.message);
+              skipped++;
+            }
+          }
+        } else if (item.status === 'overwrite' && item.existingId) {
+          try {
+            await apiFetch(`/api/students/${item.existingId}`, {
+              method: 'PATCH',
+              body: JSON.stringify({ full_name: item.fullName, program: item.program || null })
+            });
+            updated++;
+          } catch (err) {
+            console.error('Student import update failed:', err.message);
+            skipped++;
+          }
+        }
+        // 'no-change' — skip
+      } catch (err) {
+        skipped++;
+      }
+    }
+  } finally {
+    hideLoading();
+  }
+
+  studentRoster.loaded = false;
+  await refreshClassRoster();
+  const statusEl = document.getElementById('rosterStatus');
+  if (statusEl) {
+    const parts = [];
+    if (added) parts.push(`${added} added`);
+    if (updated) parts.push(`${updated} updated`);
+    if (skipped) parts.push(`${skipped} skipped`);
+    statusEl.textContent = parts.join(', ') + ' complete.';
+    statusEl.style.color = 'var(--ok)';
+    setTimeout(() => statusEl.textContent = '', 3000);
+  }
+}
+
+
 
 function generateTranscript() {
   const regNo = document.getElementById('transcriptRegNo').value.trim();
@@ -2398,7 +3148,7 @@ function generateTranscript() {
         tableRows += `<tr><td>${escHtml(r.code)}</td><td>${escHtml(r.title)}</td><td style="text-align:center">${escHtml(r.unit)}</td>
           <td style="text-align:center">${escHtml(r.score)}</td><td style="text-align:center;font-weight:600">${gi.grade}</td>
           <td style="text-align:center">${gi.point === null ? '' : gi.point}</td></tr>`;
-        flatRows.push({ Year: yearKey, Semester: sem, RegNo: regNo, Name: r.name, Code: r.code, Title: r.title, Unit: r.unit, Score: r.score, Grade: gi.grade, Point: gi.point, Program: r.program || '', Remark: r.remark || '' });
+        flatRows.push({ Year: yearKey, Semester: sem, RegNo: regNo, Name: r.name, Code: r.code, Title: r.title, Unit: r.unit, Score: r.score, Grade: gi.grade, Point: gi.point, Program: resolveProgram(r) || '', Remark: r.remark || '' });
       });
 
       const semGpaText = stats.gpa !== null ? stats.gpa.toFixed(2) : '—';
@@ -2633,10 +3383,10 @@ async function exportCumulativeExcel() {
     });
     const remColIdx = 4 + codes.length;
     if (includeProgRem) {
-      const prog = rows.find(r => (r.regNo || '').trim() === stu.regNo && (r.program || '').trim());
-      excelRow.getCell(remColIdx).value = prog ? (prog.program || '') : '';
-      excelRow.getCell(remColIdx).alignment = { horizontal: 'center', vertical: 'middle' };
-      rowValues.push(prog ? (prog.program || '') : '');
+       const prog = rows.find(r => (r.regNo || '').trim() === stu.regNo && (resolveProgram(r) || '').trim());
+       excelRow.getCell(remColIdx).value = prog ? (resolveProgram(prog) || '') : '';
+       excelRow.getCell(remColIdx).alignment = { horizontal: 'center', vertical: 'middle' };
+       rowValues.push(prog ? (resolveProgram(prog) || '') : '');
       const remarkCell = excelRow.getCell(remColIdx + 1);
       const stuRemarks = rows.filter(r => (r.regNo || '').trim() === stu.regNo && (r.remark || '').trim());
       remarkCell.value = stuRemarks.length ? (stuRemarks[0].remark || '') : '';
@@ -2721,7 +3471,7 @@ async function exportSemesterExcel(yearKey, sem) {
     const excelRow = sheet.getRow(headerRowNum + 1 + idx);
     const scoreVal = r.score === '' ? null : parseFloat(r.score);
     const values = [idx + 1, r.regNo, r.name];
-    if (includeProgRem) values.push(r.program || '', r.remark || '');
+    if (includeProgRem) values.push(resolveProgram(r) || '', r.remark || '');
     values.push(r.code, r.title, r.unit, scoreVal, gi.grade || '', gi.point === null ? '' : gi.point);
     values.forEach((val, colIdx) => { excelRow.getCell(colIdx + 1).value = val; });
     excelStyleDataRow(excelRow, colCount);
@@ -2790,7 +3540,7 @@ async function exportYearExcel(yearKey) {
       const excelRow = sheet.getRow(headerRowNum + 1 + idx);
       const scoreVal = r.score === '' ? null : parseFloat(r.score);
       const values = [idx + 1, r.regNo, r.name];
-      if (includeProgRem) values.push(r.program || '', r.remark || '');
+    if (includeProgRem) values.push(resolveProgram(r) || '', r.remark || '');
       values.push(r.code, r.title, r.unit, scoreVal, gi.grade || '', gi.point === null ? '' : gi.point);
       values.forEach((val, colIdx) => { excelRow.getCell(colIdx + 1).value = val; });
       excelStyleDataRow(excelRow, colCount);
@@ -3043,6 +3793,37 @@ function renderSettingsView() {
             `;
           }).join('')}
         </div>
+      </div>
+
+      <div class="settings-divider"></div>
+
+      <h3>Class Roster</h3>
+      <p class="settings-note">Manage the canonical list of students. Students added here can be searched when adding them to courses.</p>
+       <div class="settings-form">
+         <div class="meta-field">
+           <label for="rosterSearch">Search students</label>
+           <input id="rosterSearch" placeholder="Search by Reg No or name…">
+         </div>
+         <button class="btn gold" id="addRosterStudentBtn">+ Add Student</button>
+         <button class="btn secondary" id="importRosterBtn" style="margin-bottom:12px">Import from file</button>
+         <input type="file" id="importRosterFile" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleStudentImportFile(this)">
+         <span id="rosterStatus" class="settings-status"></span>
+       </div>
+      <div class="table-scroll" id="rosterTableWrap">
+        <table class="roster-table">
+          <thead>
+            <tr>
+              <th style="width:12%">Reg No</th>
+              <th style="width:28%">Full Name</th>
+              <th style="width:30%">Program</th>
+              <th style="width:10%">Courses</th>
+              <th style="width:20%"></th>
+            </tr>
+          </thead>
+          <tbody id="rosterTableBody">
+            <tr><td colspan="5" style="text-align:center;color:var(--muted)">Loading…</td></tr>
+          </tbody>
+        </table>
       </div>
 
       <h3>Student passcode</h3>
@@ -3317,6 +4098,14 @@ function generateInitialsAvatar(name, email, sizePx) {
 function escAttr(v) { return (v === undefined || v === null) ? '' : String(v).replace(/"/g, '&quot;'); }
 function escHtml(v) { return (v === undefined || v === null) ? '' : String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
+function resolveProgram(row) {
+  if (row.studentId) {
+    const student = studentRoster.all.find(s => s.id === row.studentId);
+    if (student && student.program) return student.program;
+  }
+  return (row.program || '');
+}
+
 /* ===================== SEARCHABLE SELECT COMPONENT ===================== */
 let futoSchools = null;
 
@@ -3344,10 +4133,14 @@ async function loadFutoSchools() {
     options: opts = [],
     defaultValue = '',
     onOptionSelect = null,
+    onInputClear = null,
+    asyncProvider = null,
+    onNoMatchCreate = null,
     initialDisabled = false
   } = options;
 
   let disabled = initialDisabled;
+  let sublabelKey = optionSublabel;
   const safePlaceholder = placeholder || 'Type to search…';
   const safeInputId = inputId || `ss-input-${Math.random().toString(36).slice(2, 10)}`;
 
@@ -3371,6 +4164,19 @@ async function loadFutoSchools() {
 
   function renderOptions() {
     optionsList.innerHTML = '';
+    if (asyncProvider && filtered.length === 0 && input.value.trim() && onNoMatchCreate) {
+      const term = input.value.trim();
+      const div = document.createElement('div');
+      div.className = 'ss-option ss-create';
+      div.dataset.index = -1;
+      div.innerHTML = `<span class="ss-create-label">Add "${escHtml(term)}" as a new student</span>`;
+      div.addEventListener('mousedown', e => {
+        e.preventDefault();
+        onNoMatchCreate(term);
+      });
+      optionsList.appendChild(div);
+      return;
+    }
     if (filtered.length === 0) {
       optionsList.innerHTML = '<div class="ss-no-results">No matching option</div>';
       return;
@@ -3381,8 +4187,8 @@ async function loadFutoSchools() {
       if (i === activeIndex) div.classList.add('active');
       div.dataset.index = i;
       let labelHtml = escHtml(opt[optionLabel] || '');
-      if (optionSublabel && opt[optionSublabel]) {
-        labelHtml += ` <span class="ss-sublabel">${escHtml(opt[optionSublabel])}</span>`;
+      if (sublabelKey && opt[sublabelKey]) {
+        labelHtml += ` <span class="ss-sublabel">${escHtml(opt[sublabelKey])}</span>`;
       }
       div.innerHTML = labelHtml;
       div.addEventListener('mousedown', e => {
@@ -3395,6 +4201,24 @@ async function loadFutoSchools() {
 
   function filterOptions() {
     const term = input.value.toLowerCase().trim();
+    if (asyncProvider) {
+      if (!term) {
+        filtered = [];
+        renderOptions();
+        updateActiveHighlight();
+        return;
+      }
+      asyncProvider(term).then(results => {
+        filtered = results || [];
+        renderOptions();
+        updateActiveHighlight();
+      }).catch(() => {
+        filtered = [];
+        renderOptions();
+        updateActiveHighlight();
+      });
+      return;
+    }
     if (!term) {
       filtered = opts.slice();
     } else {
@@ -3439,8 +4263,18 @@ async function loadFutoSchools() {
     if (!disabled) openDropdown();
   });
 
+  let asyncDebounce = null;
+
   input.addEventListener('input', () => {
-    filterOptions();
+    if (asyncProvider) {
+      clearTimeout(asyncDebounce);
+      asyncDebounce = setTimeout(() => filterOptions(), 300);
+    } else {
+      filterOptions();
+    }
+    if (onInputClear && input.value.trim() === '') {
+      onInputClear();
+    }
   });
 
   input.addEventListener('keydown', e => {
@@ -3485,6 +4319,7 @@ async function loadFutoSchools() {
     setValue: (val) => { input.value = val || ''; },
     setOptions: (newOpts) => { filtered = []; opts.length = 0; opts.push(...newOpts); filterOptions(); },
     setPlaceholder: (text) => { input.placeholder = text || ''; },
+    setSublabelKey: (key) => { sublabelKey = key; renderOptions(); },
     disable: (shouldDisable) => {
       disabled = shouldDisable;
       if (disabled) {
@@ -3502,10 +4337,28 @@ async function loadFutoSchools() {
 /* ===================== SETTINGS SEARCHABLE SELECTS ===================== */
 let schoolSelect = null;
 let departmentSelect = null;
+let allDepartments = [];
 
 async function setupSettingsSelects() {
   await loadFutoSchools();
+  buildAllDepartments();
   restoreSchoolSelect();
+}
+
+function buildAllDepartments() {
+  const schools = futoSchools || [];
+  allDepartments = [];
+  schools.forEach(school => {
+    if (school.departments) {
+      school.departments.forEach(dept => {
+        allDepartments.push({
+          name: dept.name,
+          code: dept.code,
+          schoolName: school.name
+        });
+      });
+    }
+  });
 }
 
 function onSchoolSelected(school) {
@@ -3513,14 +4366,12 @@ function onSchoolSelected(school) {
 
   if (departmentSelect) {
     departmentSelect.setOptions(depts);
+    departmentSelect.setSublabelKey('code');
     departmentSelect.setPlaceholder('Search departments…');
     departmentSelect.disable(false);
     departmentSelect.setValue('');
   }
 
-  /* If the adviser's stored department happens to belong to the newly
-     selected school's list, restore it — otherwise leave the field
-     cleared so they pick a valid one. */
   if (school && depts.length) {
     const savedDept = state.meta.department || '';
     if (savedDept) {
@@ -3531,6 +4382,14 @@ function onSchoolSelected(school) {
       }
     }
   }
+}
+
+function onSchoolInputCleared() {
+  if (!departmentSelect) return;
+  departmentSelect.setOptions(allDepartments);
+  departmentSelect.setSublabelKey('schoolName');
+  departmentSelect.setPlaceholder('Search all departments…');
+  departmentSelect.disable(false);
 }
 
 function restoreSchoolSelect() {
@@ -3547,7 +4406,8 @@ function restoreSchoolSelect() {
       defaultValue: state.meta.school || '',
       onOptionSelect: (school) => {
         onSchoolSelected(school);
-      }
+      },
+      onInputClear: onSchoolInputCleared
     });
   }
 
@@ -3555,12 +4415,11 @@ function restoreSchoolSelect() {
   if (deptContainer && !departmentSelect) {
     departmentSelect = createSearchableSelect(deptContainer, {
       inputId: 'settingDepartment',
-      placeholder: 'Select a school first',
+      placeholder: 'Search all departments…',
       optionLabel: 'name',
-      optionSublabel: 'code',
-      options: [],
+      optionSublabel: 'schoolName',
+      options: allDepartments,
       defaultValue: state.meta.department || '',
-      initialDisabled: true,
       onOptionSelect: () => {
         if (departmentSelect && departmentSelect.input) {
           departmentSelect.input.blur();
@@ -3579,19 +4438,14 @@ function restoreSchoolSelect() {
 
   if (match && departmentSelect) {
     departmentSelect.setOptions(match.departments || []);
-    departmentSelect.disable(false);
+    departmentSelect.setSublabelKey('code');
+    departmentSelect.setPlaceholder('Search departments…');
     const savedDept = state.meta.department || '';
     if (savedDept) {
       departmentSelect.setValue(savedDept);
     } else {
       departmentSelect.setValue('');
     }
-  } else if (departmentSelect) {
-    /* Stored school doesn't match any JSON entry.
-       Preserve whatever Department was stored so the user can save
-       without losing data — they can change it later by picking a
-       school from the dropdown. */
-    departmentSelect.disable(true);
   }
 }
 

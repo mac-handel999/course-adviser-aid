@@ -8,6 +8,7 @@ const settingsRouter = require('./routes/settings');
 const creditLoadRouter = require('./routes/creditLoad');
 const academicSessionsRouter = require('./routes/academicSessions');
 const coursesRouter = require('./routes/courses');
+const studentsRouter = require('./routes/students');
 const publicPortalRouter = require('./routes/publicPortal');
 const dashboardRouter = require('./routes/dashboard');
 
@@ -23,6 +24,7 @@ app.use('/api/settings', settingsRouter);
 app.use('/api/credit-load', creditLoadRouter);
 app.use('/api/academic-sessions', academicSessionsRouter);
 app.use('/api/courses', coursesRouter);
+app.use('/api/students', studentsRouter);
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/public', publicPortalRouter);
 

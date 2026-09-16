@@ -540,19 +540,6 @@ nav.main-nav a:hover {
   line-height: 1.5;
 }
 
-.auth-guest {
-  display: block;
-  text-align: center;
-  margin-top: 14px;
-  font-size: 12.5px;
-  color: var(--muted);
-  text-decoration: none;
-}
-
-.auth-guest:hover {
-  color: var(--green-deep);
-}
-
 @media (max-width: 480px) {
   .auth-card {
     padding: 24px 20px;

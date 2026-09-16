@@ -19,5 +19,5 @@ const supabaseClient = (SUPABASE_URL.startsWith('http') && SUPABASE_ANON_KEY && 
   : null;
 
 if (!supabaseClient) {
-  console.warn('Supabase is not configured yet — edit js/supabase-config.js with your project URL and anon key. The app will keep working in local-only (guest) mode until then.');
+  console.warn('Supabase is not configured yet — edit js/supabase-config.js with your project URL and anon key.');
 }

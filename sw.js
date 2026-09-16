@@ -10,6 +10,7 @@ const APP_SHELL = [
   '/css/landing.css',
   '/css/check-results.css',
   '/js/grading.js',
+  '/js/loading.js',
   '/js/app.js',
   '/js/check-results.js',
   '/js/landing.js',

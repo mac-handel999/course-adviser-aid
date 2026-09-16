@@ -30,6 +30,14 @@ Each result row can carry an optional **Program** (of study) and **Remark**
 (free-text). These appear in the per-course roster, Excel exports, and the
 public student portal lookup.
 
+### Student roster
+
+Students have a canonical roster entry with their registration number, full
+name, and program. Results rows link to the student record via `student_id`
+(new rows) while keeping the denormalized `reg_no` / `student_name` columns
+for backward compatibility. The Class Roster section under Settings lets you
+manage the canonical list — add, edit, delete, and search students.
+
 ### Public student portal
 
 Generate a shareable portal URL with a passcode for any class set. Students
@@ -99,10 +107,16 @@ futo-portal/
 │   ├── app.js                 Express app (middleware + routes)
 │   ├── routes/results.js      GET/POST/PUT/DELETE /api/results
 │   ├── routes/courses.js      GET/POST/PATCH/DELETE /api/courses
+│   ├── routes/students.js     GET/POST/PATCH/DELETE /api/students (roster management)
 │   ├── routes/publicPortal.js Student result lookup (no auth)
 │   ├── middleware/requireAuth.js
 │   ├── lib/supabaseAdmin.js   Service-role Supabase client (server-only)
-│   └── lib/migrate-courses.js Backfill script (results → courses)
+│   └── lib/adviserSettings.js Adviser settings helpers
+├── scripts/
+│   ├── migrate-courses-dryrun.js   Phase 1: courses dry-run (read-only)
+│   ├── migrate-courses.js          Phase 2: courses backfill (writes)
+│   ├── migrate-students-dryrun.js  Phase 1: students dry-run (read-only)
+│   └── migrate-students.js         Phase 2: students backfill (writes)
 ├── api/index.js               Vercel serverless function wrapping server/app.js
 ├── server.js                  Local dev entry point (`npm run dev`)
 ├── sql/schema.sql             Run once in the Supabase SQL editor
@@ -188,7 +202,37 @@ app already has CORS enabled for this case.
 | POST     | `/api/results`               | Create a result row                  |
 | PUT      | `/api/results/:id`           | Update a result row                  |
 | DELETE   | `/api/results/:id`           | Delete a result row                  |
+| GET      | `/api/students`              | List the adviser's student roster    |
+| GET      | `/api/students/reg/:reg_no`  | Look up a student by reg no          |
+| POST     | `/api/students`              | Create a new student roster entry    |
+| PATCH    | `/api/students/:id`          | Update a student's name/program      |
+| DELETE   | `/api/students/:id`          | Delete a student (if no linked results) |
 | POST     | `/api/portal/:slug/lookup`   | Public result lookup (no auth)       |
+
+## Migrations
+
+Two migration phases run as standalone scripts using the Supabase service
+role key. Always run Phase 1 first to review, then Phase 2 to write.
+
+### Courses migration (results → courses)
+
+1. `node scripts/migrate-courses-dryrun.js` — read-only report of
+   `(user/year/sem/course_code)` groups and any conflicting
+   `(title, unit)` combinations.
+2. `node scripts/migrate-courses.js` — creates `courses` rows (upsert) and
+   backfills `results.course_id`. Safe to re-run.
+
+### Students migration (results → students)
+
+1. `node scripts/migrate-students-dryrun.js` — read-only report of
+   `(user/reg_no)` groups and any conflicting `(student_name, program)`
+   combinations (e.g. spelling variants across imports).
+2. `node scripts/migrate-students.js` — creates `students` rows (upsert) and
+   backfills `results.student_id`. Uses the most frequent `(name, program)`
+   combination to resolve conflicts. Safe to re-run.
+
+Neither migration modifies `results.reg_no`, `results.student_name`, or
+`results.program` — those columns are kept intact as historical copies.
 
 ## Notes / things to revisit
 
@@ -202,3 +246,9 @@ app already has CORS enabled for this case.
   directly.
 - No password-reset flow is wired into the sign-in page yet (Supabase
   supports it via `supabaseClient.auth.resetPasswordForEmail`).
+
+
+
+
+
+  

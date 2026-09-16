@@ -47,7 +47,7 @@ router.post('/portal/:slug/lookup', async (req, res) => {
 
     const { data: results, error: resultsError } = await supabaseAdmin
       .from('results')
-      .select('year, semester, course_code, course_title, credit_unit, score, is_carryover, student_name, reg_no, program, remark')
+      .select('year, semester, course_code, course_title, credit_unit, score, is_carryover, student_name, reg_no, program, remark, student_id')
       .eq('created_by', settings.user_id)
       .ilike('reg_no', trimmedRegNo)
       .order('year', { ascending: true })
@@ -56,6 +56,27 @@ router.post('/portal/:slug/lookup', async (req, res) => {
     if (resultsError) {
       console.error('Public portal results error:', resultsError.message);
       return res.status(401).json({ error: 'No results found for that passcode and registration number.' });
+    }
+
+    // Fetch the student record (if any) to get canonical program/name for
+    // rows that have a student_id linked.  Falls back to results.program
+    // for rows without student_id.
+    let studentRecord = null;
+    if (results && results.length > 0) {
+      const studentId = results[0]?.student_id;
+      if (studentId) {
+        const { data: studentData, error: studentError } = await supabaseAdmin
+          .from('students')
+          .select('full_name, program')
+          .eq('id', studentId)
+          .eq('user_id', settings.user_id)
+          .maybeSingle();
+        if (studentError) {
+          console.error('Public portal student lookup error:', studentError.message);
+        } else {
+          studentRecord = studentData;
+        }
+      }
     }
 
     const { data: creditLoad, error: creditLoadError } = await supabaseAdmin
@@ -91,13 +112,22 @@ router.post('/portal/:slug/lookup', async (req, res) => {
       academicSessionsMap[row.year] = row.session_label;
     });
 
+    // For each results row, use the student record's program if available
+    // (row has student_id), otherwise fall back to the row's own program.
+    const resultsWithProgram = (results || []).map(r => {
+      if (r.student_id && studentRecord) {
+        return { ...r, program: studentRecord.program || r.program || '' };
+      }
+      return r;
+    });
+
     res.json({
       university: 'FEDERAL UNIVERSITY OF TECHNOLOGY OWERRI',
       faculty: settings.faculty,
       department: settings.department,
       regNo: trimmedRegNo,
-      studentName: results[0]?.student_name || '',
-      results,
+      studentName: studentRecord?.full_name || results[0]?.student_name || '',
+      results: resultsWithProgram,
       creditLoad: creditLoadMap,
       academicSessions: academicSessionsMap
     });

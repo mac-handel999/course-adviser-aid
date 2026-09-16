@@ -943,6 +943,9 @@ td.sn-cell {
 .import-summary .num.err {
   color: var(--red);
 }
+.import-summary .num.warn {
+  color: #B7791F;
+}
 
 .import-summary .lbl {
   font-size: 11px;
@@ -965,6 +968,26 @@ td.sn-cell {
 }
 
 .import-errors ul {
+  margin: 8px 0 0 0;
+  padding-left: 18px;
+  color: var(--ink);
+  font-size: 12.5px;
+}
+
+.import-warnings {
+  background: #FFFAF0;
+  border: 1px solid #FEEBC8;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+
+.import-warnings strong {
+  font-size: 12px;
+  color: #B7791F;
+}
+
+.import-warnings ul {
   margin: 8px 0 0 0;
   padding-left: 18px;
   color: var(--ink);
@@ -1158,6 +1181,60 @@ td.sn-cell {
   display: none !important;
 }
 
+.ss-option.ss-create {
+  font-style: italic;
+  color: var(--gold);
+}
+
+.ss-create-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.student-search-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.student-search-modal {
+  background: var(--card-bg);
+  border-radius: 12px;
+  padding: 24px;
+  width: 90%;
+  max-width: 480px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.student-search-modal h3 {
+  margin: 0 0 12px 0;
+  font-size: 18px;
+}
+
+.student-search-note {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0 0 16px 0;
+}
+
+.student-search-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.student-search-actions .btn {
+  flex: 1;
+}
+
 .settings-link {
   margin-bottom: 18px;
 }
@@ -1195,6 +1272,44 @@ td.sn-cell {
   font-size: 12px;
   color: var(--muted);
   margin: 0 0 12px 0;
+}
+
+.roster-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 13px;
+}
+
+.roster-table th {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.roster-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.roster-table td.roster-editable input {
+  width: 100%;
+  border: 1px solid var(--line-soft);
+  background: var(--bg-soft);
+  padding: 2px 4px;
+  font-size: 13px;
+  border-radius: 3px;
+}
+
+.roster-table td.roster-editable input:focus {
+  outline: 2px solid var(--gold);
+  border-color: var(--gold);
+}
+
+.roster-save-btns {
+  display: flex;
+  gap: 4px;
 }
 
 /* ---------- mobile bottom tab bar ---------- */
