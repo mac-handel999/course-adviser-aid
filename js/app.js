@@ -538,7 +538,7 @@ async function handleImageScan(input, yearKey, sem) {
   if (!file) return;
 
   // Reject files that are too large for base64 upload to server
-  const MAX_BYTES = 15 * 1024 * 1024; // 15 MB
+   const MAX_BYTES = 7 * 1024 * 1024; // 7 MB (base64 adds ~33%, stays under 10MB Express limit)
   if (file.size > MAX_BYTES) {
     alert(`File is too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Please use a smaller image.`);
     input.value = '';
@@ -625,7 +625,9 @@ async function handleImageScan(input, yearKey, sem) {
 
     renderImportPreview(parsed, yearKey, sem, activeCourse);
   } catch (err) {
-    alert((err && err.message) || 'Failed to scan image. Please try again.');
+    const errMsg = (err && err.message) || 'Failed to scan image. Please try again.';
+    const errDetails = (err && err.details) || '';
+    alert(errDetails ? `${errMsg}\n\n${errDetails}` : errMsg);
   } finally {
     hideLoading();
     input.value = '';
