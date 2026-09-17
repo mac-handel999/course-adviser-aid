@@ -165,6 +165,134 @@ router.post('/', async (req, res) => {
   }
 });
 
+/* ===================== POST /api/students/batch =====================
+   Bulk-create students for the current adviser.  Accepts { students: [...] }
+   where each entry has { reg_no, full_name, program }.  Uses a single
+   Supabase insert for all valid rows, deduplicates against existing reg_no
+   values so duplicates are skipped (not errors).  Returns { added, skipped,
+   skippedStudents }. */
+router.post('/batch', async (req, res) => {
+  try {
+    const { students } = req.body;
+    const userId = req.user.id;
+
+    if (!Array.isArray(students) || students.length === 0) {
+      return res.status(400).json({ error: 'students must be a non-empty array.' });
+    }
+
+    // Validate and trim each entry
+    const toInsert = [];
+    const errors = [];
+    const validRegs = new Set();
+    const invalid = [];
+
+    students.forEach((s, idx) => {
+      const regNo = String(s?.reg_no || '').trim();
+      const fullName = String(s?.full_name || '').trim();
+      const program = s?.program !== undefined && s?.program !== null && String(s.program).trim() !== ''
+        ? String(s.program).trim()
+        : null;
+
+      if (!regNo) {
+        invalid.push({ index: idx, reason: 'Reg No is required.' });
+        return;
+      }
+      if (!/^\d{11}$/.test(regNo)) {
+        invalid.push({ index: idx, reg_no: regNo, reason: 'Reg No must be exactly 11 digits.' });
+        return;
+      }
+      if (!fullName) {
+        invalid.push({ index: idx, reg_no: regNo, reason: 'Full Name is required.' });
+        return;
+      }
+      if (validRegs.has(regNo)) {
+        invalid.push({ index: idx, reg_no: regNo, reason: 'Duplicate Reg No within request.' });
+        return;
+      }
+      validRegs.add(regNo);
+      toInsert.push({
+        user_id: userId,
+        reg_no: regNo,
+        full_name: fullName,
+        program
+      });
+    });
+
+    // Check for pre-existing students by reg_no
+    let skippedStudents = [];
+    if (toInsert.length > 0) {
+      const regsToCheck = toInsert.map(s => s.reg_no);
+      const { data: existing, error: checkError } = await supabaseAdmin
+        .from('students')
+        .select('reg_no')
+        .eq('user_id', userId)
+        .in('reg_no', regsToCheck);
+
+      if (checkError) {
+        console.error('Students batch duplicate-check error:', checkError.message);
+        return res.status(500).json({ error: 'Failed to check existing students' });
+      }
+
+      const existingRegs = new Set((existing || []).map(e => e.reg_no));
+      const trulyNew = toInsert.filter(s => !existingRegs.has(s.reg_no));
+      skippedStudents = toInsert.filter(s => existingRegs.has(s.reg_no)).map(s => ({
+        reg_no: s.reg_no,
+        full_name: s.full_name,
+        reason: 'Already on roster — skipped'
+      }));
+
+      // Bulk insert the truly new ones
+      if (trulyNew.length === 0) {
+        return res.json({ added: 0, skipped: toInsert.length, skippedStudents, errors: invalid });
+      }
+
+      const { data: inserted, error: insertError } = await supabaseAdmin
+        .from('students')
+        .insert(trulyNew)
+        .select('id, reg_no, full_name, program, created_at');
+
+      if (insertError) {
+        console.error('Students batch insert error:', insertError.message);
+        // If it's a conflict error, fall back to inserting individually
+        if (insertError.message && insertError.message.includes('duplicate')) {
+          const insertedIds = [];
+          for (const s of trulyNew) {
+            try {
+              const { data: d, error: e } = await supabaseAdmin
+                .from('students')
+                .insert(s)
+                .select('id, reg_no, full_name, program, created_at')
+                .single();
+              if (!e) insertedIds.push(d);
+            } catch { }
+          }
+          return res.json({
+            added: insertedIds.length,
+            skipped: toInsert.length - insertedIds.length + skippedStudents.length,
+            skippedStudents: [...skippedStudents, ...(toInsert.slice(insertedIds.length).map(s => ({
+              reg_no: s.reg_no, full_name: s.full_name, reason: 'Duplicate or conflict'
+            })))],
+            errors: invalid
+          });
+        }
+        return res.status(500).json({ error: 'Failed to insert students' });
+      }
+
+      return res.json({
+        added: inserted.length,
+        skipped: toInsert.length - inserted.length,
+        skippedStudents,
+        errors: invalid
+      });
+    }
+
+    res.json({ added: 0, skipped: 0, skippedStudents, errors: invalid });
+  } catch (err) {
+    console.error('Students batch server error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 /* ===================== PATCH /api/students/:id =====================
    Update full_name / program for an existing roster entry.
    Ownership-checked: returns 404 if the student doesn't belong to req.user.id. */

@@ -3271,72 +3271,72 @@ async function commitStudentImport(validRows, conflictRows, overwrite) {
   let skipped = 0;
   let updated = 0;
 
-  // Build lookup of existing students by reg_no
-  let existingMap = {};
-  (studentRoster.all || []).forEach(s => {
-    const reg = (s.reg_no || '').trim();
-    if (reg) existingMap[reg] = s;
-  });
+  const newStudents = validRows.filter(v => v.status === 'new' || v.status === 'add');
+  const overwriteStudents = overwrite ? conflictRows : [];
 
-  const toProcess = [];
-  validRows.forEach(v => {
-    toProcess.push({ regNo: v.regNo, fullName: v.fullName, program: v.program, status: v.status });
-  });
-  if (overwrite) {
-    conflictRows.forEach(c => {
-      toProcess.push({ regNo: c.regNo, fullName: c.fullName, program: c.program, status: 'overwrite', existingId: c.existing.id });
-    });
-  }
-
-  showLoading(`${toProcess.length} students…`);
+  showLoading(`Importing ${newStudents.length + overwriteStudents.length} students…`);
   try {
-    for (const item of toProcess) {
+    // Batch-create all new students in a single request
+    if (newStudents.length > 0) {
       try {
-        if (item.status === 'new' || item.status === 'add') {
-          try {
-            await createStudent(item.regNo, item.fullName, item.program || '');
-            added++;
-          } catch (err) {
-            if (err.message && err.message.includes('409')) {
-              // Race condition — student was added between preview and commit
-              skipped++;
-            } else {
-              console.error('Student import create failed:', err.message);
-              skipped++;
-            }
-          }
-        } else if (item.status === 'overwrite' && item.existingId) {
-          try {
-            await apiFetch(`/api/students/${item.existingId}`, {
-              method: 'PATCH',
-              body: JSON.stringify({ full_name: item.fullName, program: item.program || null })
-            });
-            updated++;
-          } catch (err) {
-            console.error('Student import update failed:', err.message);
-            skipped++;
-          }
-        }
-        // 'no-change' — skip
+        const batchResult = await apiFetch('/api/students/batch', {
+          method: 'POST',
+          body: JSON.stringify({
+            students: newStudents.map(s => ({
+              reg_no: s.regNo,
+              full_name: s.fullName,
+              program: s.program || null
+            }))
+          })
+        });
+        added += batchResult.added || 0;
+        skipped += batchResult.skipped || 0;
       } catch (err) {
-        skipped++;
+        console.error('Batch student create failed:', err.message);
+        skipped += newStudents.length;
       }
     }
+
+    // Batch-update overwritten students in parallel (chunks of 10)
+    if (overwriteStudents.length > 0) {
+      const CHUNK = 10;
+      for (let i = 0; i < overwriteStudents.length; i += CHUNK) {
+        const chunk = overwriteStudents.slice(i, i + CHUNK);
+        const results = await Promise.allSettled(
+          chunk.map(s => apiFetch(`/api/students/${s.existing.id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ full_name: s.fullName, program: s.program || null })
+          }))
+        );
+        results.forEach(result => {
+          if (result.status === 'fulfilled') updated++;
+          else skipped++;
+        });
+      }
+    }
+   } finally {
+    hideLoading();
+  }
+
+  // Refresh the roster immediately so all new students appear
+  showLoading('Updating roster…');
+  try {
+    studentRoster.loaded = false;
+    await refreshClassRoster();
   } finally {
     hideLoading();
   }
 
-  studentRoster.loaded = false;
-  await refreshClassRoster();
+
   const statusEl = document.getElementById('rosterStatus');
   if (statusEl) {
     const parts = [];
     if (added) parts.push(`${added} added`);
     if (updated) parts.push(`${updated} updated`);
     if (skipped) parts.push(`${skipped} skipped`);
-    statusEl.textContent = parts.join(', ') + ' complete.';
+    statusEl.textContent = parts.length ? parts.join(', ') + ' complete.' : 'Done.';
     statusEl.style.color = 'var(--ok)';
-    setTimeout(() => statusEl.textContent = '', 3000);
+    setTimeout(() => { statusEl.textContent = ''; }, 3000);
   }
 }
 
