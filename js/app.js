@@ -2379,6 +2379,8 @@ function renderDashboardCohortGpa(gpaRows) {
   }
   const stats = computeGpaStats(gpaRows);
   el.textContent = stats.gpa !== null ? stats.gpa.toFixed(2) : '—';
+  const labelEl = document.querySelector('.dashboard-hero .hero-label');
+  if (labelEl) labelEl.textContent = getDashboardGpaLabel();
 }
 
 function getDashboardGpaLabel() {
