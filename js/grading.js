@@ -47,9 +47,9 @@ function compareRows(a, b) {
   return 0;
 }
 
-function computeGpaStats(rows, configuredTotalUnits) {
+function computeGpaStats(rows) {
   if (!rows || !rows.length) {
-    return { gpa: null, unitsEntered: 0, unitsConfigured: configuredTotalUnits ?? null, isIncomplete: false, percentComplete: null, dedupedRows: [] };
+    return { gpa: null, unitsEntered: 0, dedupedRows: [] };
   }
 
   const byCode = {};
@@ -79,9 +79,6 @@ function computeGpaStats(rows, configuredTotalUnits) {
   });
 
   const gpa = unitsEntered > 0 ? totalPoints / unitsEntered : null;
-  const unitsConfigured = configuredTotalUnits ?? null;
-  const isIncomplete = unitsConfigured !== null && unitsEntered < unitsConfigured;
-  const percentComplete = unitsConfigured ? Math.round((unitsEntered / unitsConfigured) * 100) : null;
 
-  return { gpa, unitsEntered, unitsConfigured, isIncomplete, percentComplete, dedupedRows };
+  return { gpa, unitsEntered, dedupedRows };
 }

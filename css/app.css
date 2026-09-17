@@ -1366,7 +1366,7 @@ td.sn-cell {
   .bottom-tab-bar,
   .year-actions,
   .settings-card,
-  .credit-load-grid,
+  .session-grid,
   .course-card-actions,
   .cum-toolbar {
     display: none !important;
@@ -1763,6 +1763,73 @@ td.sn-cell {
   font-family: 'Inter', sans-serif;
   font-size: 12px;
   color: var(--muted);
+}
+
+.dashboard-semester-disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.top-performers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.top-performer-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.top-performer-row:last-child {
+  border-bottom: none;
+}
+
+.tp-name {
+  flex: 1;
+  font-weight: 500;
+}
+
+.tp-regno {
+  color: var(--muted);
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.tp-gpa {
+  font-family: 'Source Serif 4', serif;
+  font-size: 15px;
+}
+
+.top-scores-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.top-scores-table th,
+.top-scores-table td {
+  border: 1px solid var(--line);
+  padding: 7px 10px;
+  text-align: left;
+}
+
+.top-scores-table th {
+  font-family: 'Inter', sans-serif;
+  font-size: 10.5px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .3px;
+}
+
+.top-score-row td:nth-child(3) {
+  text-align: center;
+  font-weight: 600;
 }
 
 /* Make sure the .table-scroll inside the activity table works */

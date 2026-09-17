@@ -15,7 +15,7 @@ const YEAR_KEYS = Array.from({ length: 10 }, (_, i) => 'Year ' + (i + 1));
 const SEMESTERS = ['Harmattan Semester', 'Rain Semester'];
 const emptyRow = () => ({ id: null, regNo: '', name: '', code: '', title: '', unit: '', score: '', test_score: '', lab_score: '', exam_score: '', isCarryover: false, program: '', remark: '', studentId: null });
 
-let state = { years: {}, courses: {}, currentView: 'Year 1', activeCourse: null, meta: { school: 'SCHOOL OF HEALTH TECHNOLOGY (SOHT)', department: 'DEPARTMENT OF PUBLIC HEALTH' }, creditLoad: {}, classSet: null, academicSessions: {} };
+let state = { years: {}, courses: {}, currentView: 'Year 1', activeCourse: null, meta: { school: 'SCHOOL OF HEALTH TECHNOLOGY (SOHT)', department: 'DEPARTMENT OF PUBLIC HEALTH' }, classSet: null, academicSessions: {} };
 YEAR_KEYS.forEach(y => {
   state.years[y] = {};
   state.courses[y] = {};
@@ -774,7 +774,7 @@ function renderCourseRoster(yearKey, sem) {
             <td class="narrow"><input type="number" value="${totalVal}" placeholder="Total" readonly style="background:var(--line-soft);color:var(--ink)" id="total-${yearKey}-${sem}-${idx}"></td>
             <td class="grade-cell grade-${gi.grade}" id="grade-${yearKey}-${sem}-${idx}">${gi.grade}</td>
             <td class="point-cell" id="point-${yearKey}-${sem}-${idx}">${gi.point === null ? '' : gi.point}</td>
-            <td class="narrow" style="text-align:center"><input type="checkbox" ${r.isCarryover ? 'checked' : ''} onchange="updateCarryover('${yearKey}','${sem}',${idx},this.checked)" title="Carry-over retit"></td>
+            <td class="narrow" style="text-align:center">${gi.grade === 'F' ? `<input type="checkbox" ${r.isCarryover ? 'checked' : ''} onchange="updateCarryover('${yearKey}','${sem}',${idx},this.checked)" title="Carry-over retit">` : ''}</td>
             <td><span id="score-warn-${yearKey}-${sem}-${idx}" style="color:var(--red);font-size:11px"></span></td>
             <td><button class="icon-btn" title="Delete row" onclick="deleteRow('${yearKey}','${sem}',${idx})">&#10005;</button></td>
           </tr>
@@ -789,7 +789,7 @@ function renderCourseRoster(yearKey, sem) {
             <td class="narrow"><input type="number" value="${escAttr(r.score)}" placeholder="Score" oninput="updateScore('${yearKey}','${sem}',${idx},this.value)"></td>
             <td class="grade-cell grade-${gi.grade}" id="grade-${yearKey}-${sem}-${idx}">${gi.grade}</td>
             <td class="point-cell" id="point-${yearKey}-${sem}-${idx}">${gi.point === null ? '' : gi.point}</td>
-            <td class="narrow" style="text-align:center"><input type="checkbox" ${r.isCarryover ? 'checked' : ''} onchange="updateCarryover('${yearKey}','${sem}',${idx},this.checked)" title="Carry-over retit"></td>
+            <td class="narrow" style="text-align:center">${gi.grade === 'F' ? `<input type="checkbox" ${r.isCarryover ? 'checked' : ''} onchange="updateCarryover('${yearKey}','${sem}',${idx},this.checked)" title="Carry-over retit">` : ''}</td>
             <td><span id="score-warn-${yearKey}-${sem}-${idx}" style="color:var(--red);font-size:11px"></span></td>
             <td><button class="icon-btn" title="Delete row" onclick="deleteRow('${yearKey}','${sem}',${idx})">&#10005;</button></td>
           </tr>
@@ -1746,6 +1746,22 @@ function updateCell(yearKey, sem, idx, field, value) {
   scheduleSave(yearKey, sem, idx);
 }
 
+function updateCarryoverCell(yearKey, sem, idx, grade) {
+  const gradeCell = document.getElementById(`grade-${yearKey}-${sem}-${idx}`);
+  if (!gradeCell) return;
+  const row = gradeCell.closest('tr');
+  if (!row) return;
+  const checkboxCell = row.querySelector('td.narrow[style*="text-align:center"]');
+  if (!checkboxCell) return;
+  if (grade === 'F') {
+    const rowData = state.years[yearKey]?.[sem]?.[idx];
+    if (!rowData) return;
+    checkboxCell.innerHTML = `<input type="checkbox" ${rowData.isCarryover ? 'checked' : ''} onchange="updateCarryover('${yearKey}','${sem}',${idx},this.checked)" title="Carry-over retit">`;
+  } else {
+    checkboxCell.innerHTML = '';
+  }
+}
+
 function updateScore(yearKey, sem, idx, value) {
   const num = parseFloat(value);
   const row = state.years[yearKey][sem][idx];
@@ -1755,14 +1771,19 @@ function updateScore(yearKey, sem, idx, value) {
     if (warn) { warn.textContent = 'Score must be a number between 0 and 100.'; warn.style.color = 'var(--red)'; }
     return;
   }
-  if (warn) { warn.textContent = ''; }
+   if (warn) { warn.textContent = ''; }
 
   row.score = value;
   const gi = gradeInfo(value);
+  const wasCarryover = row.isCarryover;
+  if (gi.grade !== 'F' && wasCarryover) {
+    row.isCarryover = false;
+  }
   const gradeCell = document.getElementById(`grade-${yearKey}-${sem}-${idx}`);
   const pointCell = document.getElementById(`point-${yearKey}-${sem}-${idx}`);
   if (gradeCell) { gradeCell.textContent = gi.grade; gradeCell.className = 'grade-cell grade-' + gi.grade; }
   if (pointCell) { pointCell.textContent = gi.point === null ? '' : gi.point; }
+  updateCarryoverCell(yearKey, sem, idx, gi.grade);
   saveToLocalStorage();
   scheduleSave(yearKey, sem, idx);
 }
@@ -1800,10 +1821,15 @@ function updateComponent(yearKey, sem, idx, field, value) {
   if (totalCell) totalCell.value = row.score !== '' ? String(row.score) : '';
 
   const gi = gradeInfo(row.score === '' ? '' : row.score);
+  const wasCarryover = row.isCarryover;
+  if (gi.grade !== 'F' && wasCarryover) {
+    row.isCarryover = false;
+  }
   const gradeCell = document.getElementById(`grade-${yearKey}-${sem}-${idx}`);
   const pointCell = document.getElementById(`point-${yearKey}-${sem}-${idx}`);
   if (gradeCell) { gradeCell.textContent = gi.grade; gradeCell.className = 'grade-cell grade-' + gi.grade; }
   if (pointCell) { pointCell.textContent = gi.point === null ? '' : gi.point; }
+  updateCarryoverCell(yearKey, sem, idx, gi.grade);
 
   saveToLocalStorage();
   scheduleSave(yearKey, sem, idx);
@@ -2079,7 +2105,7 @@ function setupRealtimeSubscriptions() {
 
   teardownRealtimeSubscriptions();
 
-  const tables = ['students', 'results', 'courses', 'adviser_settings', 'credit_load_settings', 'academic_sessions'];
+  const tables = ['students', 'results', 'courses', 'adviser_settings', 'academic_sessions'];
 
   tables.forEach(table => {
     const channel = supabaseClient.channel(`public:${table}:*`)
@@ -2130,9 +2156,6 @@ function handleRealtimeChange(table, payload) {
       loadCourses();
       break;
     case 'adviser_settings':
-      loadSettings();
-      break;
-    case 'credit_load_settings':
       loadSettings();
       break;
     case 'academic_sessions':
@@ -2283,6 +2306,20 @@ function renderDashboardContent() {
           <div class="dashboard-empty">Loading…</div>
         </div>
       </div>
+
+      <div class="dashboard-section">
+        <h3 class="dashboard-section-title">Top Performers</h3>
+        <div id="dashboardTopPerformers" class="dashboard-top-performers">
+          <div class="dashboard-empty">Loading…</div>
+        </div>
+      </div>
+
+      <div class="dashboard-section">
+        <h3 class="dashboard-section-title">Top Score Per Course</h3>
+        <div id="dashboardTopScores" class="dashboard-top-scores">
+          <div class="dashboard-empty">Loading…</div>
+        </div>
+      </div>
     </div>
   `;
 }
@@ -2294,13 +2331,15 @@ async function loadDashboardData() {
   const queryString = params.toString();
   const urlSuffix = queryString ? `?${queryString}` : '';
   try {
-    const [summaryRes, gpaRes] = await Promise.all([
+    const [summaryRes, gpaRes, topScoresRes] = await Promise.all([
       apiFetch(`/api/dashboard/summary${urlSuffix}`),
-      apiFetch(`/api/dashboard/gpa-data${urlSuffix}`)
+      apiFetch(`/api/dashboard/gpa-data${urlSuffix}`),
+      apiFetch(`/api/dashboard/top-scores${urlSuffix}`)
     ]);
 
     const summary = summaryRes;
     const gpaRows = gpaRes || [];
+    const topScores = topScoresRes || [];
 
     renderDashboardKpis(summary);
     renderDashboardCohortGpa(gpaRows);
@@ -2308,6 +2347,8 @@ async function loadDashboardData() {
     renderGpaByYearChart(gpaRows);
     renderActivityTable(summary.recentActivity);
     renderCarryovers(summary.carryoverStudents, summary.carryoverStudentsTotal);
+    renderTopPerformers(gpaRows);
+    renderTopScores(topScores);
   } catch (err) {
     console.error('Dashboard data load error:', err.message);
     const activityEl = document.getElementById('dashboardActivity');
@@ -2336,8 +2377,105 @@ function renderDashboardCohortGpa(gpaRows) {
     el.textContent = '—';
     return;
   }
-  const stats = computeGpaStats(gpaRows, null);
+  const stats = computeGpaStats(gpaRows);
   el.textContent = stats.gpa !== null ? stats.gpa.toFixed(2) : '—';
+}
+
+function getDashboardGpaLabel() {
+  if (dashboardState.year === 'all') return 'CGPA';
+  if (dashboardState.semester !== 'all') return 'Semester GPA';
+  return 'Year GPA';
+}
+
+function renderTopPerformers(gpaRows) {
+  const el = document.getElementById('dashboardTopPerformers');
+  if (!el) return;
+
+  if (!gpaRows || gpaRows.length === 0) {
+    el.innerHTML = '<div class="dashboard-empty">No results data for this scope.</div>';
+    return;
+  }
+
+  const gpaLabel = getDashboardGpaLabel();
+
+  const byStudent = {};
+  gpaRows.forEach(r => {
+    const regNo = (r.reg_no || '').trim();
+    if (!regNo) return;
+    if (!byStudent[regNo]) byStudent[regNo] = [];
+    byStudent[regNo].push(r);
+  });
+
+  const studentGpas = Object.keys(byStudent).map(regNo => {
+    const rows = byStudent[regNo];
+    const stats = computeGpaStats(rows);
+    const name = (rows.find(r => r.student_name)?.student_name) || rows[0]?.student_name || '';
+    return {
+      regNo,
+      name: name || '',
+      gpa: stats.gpa,
+      studentName: name || regNo
+    };
+  });
+
+  studentGpas.sort((a, b) => {
+    if (a.gpa === null) return 1;
+    if (b.gpa === null) return -1;
+    return b.gpa - a.gpa;
+  });
+
+  const valid = studentGpas.filter(s => s.gpa !== null);
+  if (valid.length === 0) {
+    el.innerHTML = '<div class="dashboard-empty">No GPA data available.</div>';
+    return;
+  }
+
+  const topGpa = valid[0].gpa;
+  const topPerformers = valid.filter(s => Math.abs(s.gpa - topGpa) < 0.001);
+
+  const html = topPerformers.map(s => `
+    <div class="top-performer-row">
+      <span class="tp-name" title="${escAttr(s.studentName)}">${escHtml(s.studentName)}</span>
+      <span class="tp-regno">${escHtml(s.regNo)}</span>
+      <span class="tp-gpa">${gpaLabel}: <b>${s.gpa.toFixed(2)}</b></span>
+    </div>
+  `).join('');
+
+  el.innerHTML = `
+    <div class="top-performers-list">
+      ${html}
+    </div>
+  `;
+}
+
+function renderTopScores(topScores) {
+  const el = document.getElementById('dashboardTopScores');
+  if (!el) return;
+
+  if (!topScores || topScores.length === 0) {
+    el.innerHTML = '<div class="dashboard-empty">No results data for this scope.</div>';
+    return;
+  }
+
+  const html = topScores.map(c => {
+    const topScore = c.top_score;
+    const scorers = (c.top_scorers || []).map(s => `${s.student_name || s.reg_no || ''}`.trim()).filter(Boolean).join(', ');
+    return `
+      <div class="top-score-row">
+        <span class="ts-code">${escHtml(c.course_code || '')}</span>
+        <span class="ts-title">${escHtml(c.course_title || '')}</span>
+        <span class="ts-score">${escHtml(String(topScore))}</span>
+        <span class="ts-scorers" title="${escAttr(scorers)}">${escHtml(scorers)}</span>
+      </div>
+    `;
+  }).join('');
+
+  el.innerHTML = `
+    <table class="top-scores-table">
+      <thead><tr><th>Course</th><th>Title</th><th>Top Score</th><th>Scorer(s)</th></tr></thead>
+      <tbody>${html}</tbody>
+    </table>
+  `;
 }
 
 function renderGpaByYearChart(gpaRows) {
@@ -2362,7 +2500,7 @@ function renderGpaByYearChart(gpaRows) {
 
   const labels = Object.keys(byYear).sort();
   const data = labels.map(y => {
-    const stats = computeGpaStats(byYear[y], null);
+    const stats = computeGpaStats(byYear[y]);
     return stats.gpa !== null ? stats.gpa.toFixed(2) : '—';
   });
 
@@ -2546,6 +2684,8 @@ function attachDashboardHandlers() {
     yearSelect.value = dashboardState.year;
     yearSelect.addEventListener('change', () => {
       dashboardState.year = yearSelect.value;
+      dashboardState.semester = 'all';
+      updateDashboardSemFilter();
       loadDashboardData();
     });
   }
@@ -2557,7 +2697,18 @@ function attachDashboardHandlers() {
       loadDashboardData();
     });
   }
+  updateDashboardSemFilter();
   loadDashboardData();
+}
+
+function updateDashboardSemFilter() {
+  const semSelect = document.getElementById('dashboardSemester');
+  if (semSelect) {
+    const disabled = dashboardState.year === 'all';
+    semSelect.disabled = disabled;
+    semSelect.value = disabled ? 'all' : dashboardState.semester;
+    semSelect.classList.toggle('dashboard-semester-disabled', disabled);
+  }
 }
 
 /* ===================== TRANSCRIPT VIEW ===================== */
@@ -2607,53 +2758,14 @@ function attachSettingsHandlers() {
         setTimeout(() => copyBtn.textContent = 'Copy link', 1500);
       }
     });
-  }
+   }
 
-  const creditInputs = document.querySelectorAll('.credit-load-inputs input[data-sem]');
-  const creditTimers = {};
-  creditInputs.forEach(input => {
-    input.addEventListener('input', () => {
-      const year = input.dataset.year;
-      const sem = input.dataset.sem;
-      const statusEl = document.querySelector(`.credit-load-status[data-year="${year}"]`);
-      if (statusEl) {
-        statusEl.textContent = 'Saving…';
-        statusEl.style.color = 'var(--muted)';
-      }
-      clearTimeout(creditTimers[`${year}-${sem}`]);
-      creditTimers[`${year}-${sem}`] = setTimeout(async () => {
-        const value = input.value.trim();
-        if (!value) {
-          if (statusEl) { statusEl.textContent = ''; }
-          return;
-        }
-        const numeric = parseFloat(value);
-        if (isNaN(numeric) || numeric <= 0) {
-          if (statusEl) { statusEl.textContent = 'Must be > 0'; statusEl.style.color = 'var(--red)'; }
-          return;
-        }
-        try {
-          await apiFetch('/api/credit-load', {
-            method: 'PUT',
-            body: JSON.stringify({ year, semester: sem, total_units: numeric })
-          });
-          if (!state.creditLoad[year]) state.creditLoad[year] = {};
-          state.creditLoad[year][sem] = numeric;
-          if (statusEl) { statusEl.textContent = 'Saved'; statusEl.style.color = 'var(--ok)'; }
-          setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 1500);
-        } catch (err) {
-          if (statusEl) { statusEl.textContent = err.message || 'Failed'; statusEl.style.color = 'var(--red)'; }
-        }
-      }, 600);
-    });
-  });
-
-  const sessionInputs = document.querySelectorAll('.credit-load-inputs input[data-year]:not([data-sem])');
+  const sessionInputs = document.querySelectorAll('.session-inputs input[data-year]');
   const sessionTimers = {};
   sessionInputs.forEach(input => {
     input.addEventListener('input', () => {
       const year = input.dataset.year;
-      const statusEl = document.querySelector(`.credit-load-status[data-year="${year}"][data-type="session"]`);
+      const statusEl = document.querySelector(`.session-status[data-year="${year}"]`);
       if (statusEl) {
         statusEl.textContent = 'Saving…';
         statusEl.style.color = 'var(--muted)';
@@ -3235,8 +3347,7 @@ function generateTranscript() {
   const output = document.getElementById('transcriptOutput');
   if (!regNo) { output.innerHTML = '<p class="no-record">Please enter a registration number.</p>'; return; }
 
-  let studentName = '';
-  let cumConfiguredTotal = 0;
+   let studentName = '';
   let yearBlocksHtml = '';
   let foundAny = false;
   const flatRows = [];
@@ -3251,10 +3362,7 @@ function generateTranscript() {
       yearHasData = true; foundAny = true;
       allStudentRows.push(...rows);
 
-      const configuredTotal = (state.creditLoad[yearKey] && state.creditLoad[yearKey][sem]) || null;
-      if (configuredTotal) cumConfiguredTotal += configuredTotal;
-
-      const stats = computeGpaStats(rows, configuredTotal);
+      const stats = computeGpaStats(rows);
       let tableRows = '';
       rows.forEach(r => {
         if (!studentName && r.name) studentName = r.name;
@@ -3266,10 +3374,7 @@ function generateTranscript() {
       });
 
       const semGpaText = stats.gpa !== null ? stats.gpa.toFixed(2) : '—';
-      let semTotalsHtml = `<span>Units: <b>${stats.unitsEntered}</b></span><span>Semester GPA: <b>${semGpaText}</b></span>`;
-      if (stats.unitsConfigured !== null) {
-        semTotalsHtml += `<span>Completion: <b>${stats.unitsEntered} of ${stats.unitsConfigured} units (${stats.percentComplete}%)</b></span>`;
-      }
+      const semTotalsHtml = `<span>Units: <b>${stats.unitsEntered}</b></span><span>Semester GPA: <b>${semGpaText}</b></span>`;
       semHtml += `
         <div class="t-sem-label">${sem}</div>
         <div class="table-scroll"><table><thead><tr><th>Code</th><th>Course Title</th><th>Unit</th><th>Score</th><th>Grade</th><th>Point</th></tr></thead>
@@ -3292,12 +3397,9 @@ function generateTranscript() {
     return;
   }
 
-  const cumStats = computeGpaStats(allStudentRows, cumConfiguredTotal || null);
+  const cumStats = computeGpaStats(allStudentRows);
   const cgpaText = cumStats.gpa !== null ? cumStats.gpa.toFixed(2) : '—';
-  let cgpaHtml = `<div class="cgpa-banner"><div>Cumulative Grade Point Average (CGPA)</div><div class="big">${cgpaText}</div></div>`;
-  if (cumStats.unitsConfigured !== null) {
-    cgpaHtml = `<div class="cgpa-banner"><div>Cumulative Grade Point Average (CGPA)</div><div class="big">${cgpaText}</div><div class="completion">${cumStats.unitsEntered} of ${cumStats.unitsConfigured} units (${cumStats.percentComplete}%)</div></div>`;
-  }
+  const cgpaHtml = `<div class="cgpa-banner"><div>Cumulative Grade Point Average (CGPA)</div><div class="big">${cgpaText}</div></div>`;
 
   output.innerHTML = `
     <div style="display:flex;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:10px;">
@@ -3797,21 +3899,10 @@ async function loadSettings() {
       state.meta.portalSlug = data.portal_slug || state.meta.portalSlug;
       state.meta.passcodeSet = !!data.passcode_set;
       state.classSet = data.class_set || null;
-    }
-  } catch (err) {
-    console.error('Failed to load settings:', err.message);
-  }
-
-  try {
-    const creditData = await apiFetch('/api/credit-load');
-    state.creditLoad = {};
-    (creditData || []).forEach(row => {
-      if (!state.creditLoad[row.year]) state.creditLoad[row.year] = {};
-      state.creditLoad[row.year][row.semester] = row.total_units;
-    });
-  } catch (err) {
-    console.error('Failed to load credit load settings:', err.message);
-  }
+     }
+   } catch (err) {
+     console.error('Failed to load settings:', err.message);
+   }
 
   try {
     const sessionData = await apiFetch('/api/academic-sessions');
@@ -3870,39 +3961,16 @@ function renderSettingsView() {
       <h3>Academic sessions</h3>
       <p class="settings-note">Set the academic session label for each year. These appear on official documents.</p>
       <div class="settings-form">
-        <div class="credit-load-grid">
+        <div class="session-grid">
           ${YEAR_KEYS.map(yearKey => {
             const session = state.academicSessions[yearKey] || '';
             return `
-              <div class="credit-load-row">
+              <div class="session-row">
                 <label>${yearKey}</label>
-                <div class="credit-load-inputs">
+                <div class="session-inputs">
                   <input type="text" placeholder="Session" data-year="${yearKey}" value="${escAttr(session)}">
                 </div>
-                <span class="credit-load-status" data-year="${yearKey}" data-type="session"></span>
-              </div>
-            `;
-          }).join('')}
-        </div>
-      </div>
-
-      <div class="settings-divider"></div>
-
-      <h3>Credit load</h3>
-      <p class="settings-note">Set the expected total credit units per year and semester. This is used to show completion progress alongside GPA.</p>
-      <div class="settings-form">
-        <div class="credit-load-grid">
-          ${YEAR_KEYS.map(yearKey => {
-            const harm = state.creditLoad[yearKey]?.['Harmattan Semester'] || '';
-            const rain = state.creditLoad[yearKey]?.['Rain Semester'] || '';
-            return `
-              <div class="credit-load-row">
-                <label>${yearKey}</label>
-                <div class="credit-load-inputs">
-                  <input type="number" min="1" step="1" placeholder="Harmattan" data-year="${yearKey}" data-sem="Harmattan Semester" value="${escAttr(harm)}">
-                  <input type="number" min="1" step="1" placeholder="Rain" data-year="${yearKey}" data-sem="Rain Semester" value="${escAttr(rain)}">
-                </div>
-                <span class="credit-load-status" data-year="${yearKey}"></span>
+                <span class="session-status" data-year="${yearKey}"></span>
               </div>
             `;
           }).join('')}

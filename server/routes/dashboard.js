@@ -147,7 +147,7 @@ router.get('/gpa-data', async (req, res) => {
 
     let query = supabaseAdmin
       .from('results')
-      .select('year, semester, course_code, credit_unit, score')
+       .select('year, semester, course_code, credit_unit, score, reg_no, student_name')
       .eq('created_by', userId)
       .not('reg_no', 'is', null);
 
@@ -167,6 +167,95 @@ router.get('/gpa-data', async (req, res) => {
     res.json(data || []);
   } catch (err) {
     console.error('Dashboard gpa-data server error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+/* ===================== GET /api/dashboard/top-scores =====================
+   For each course in scope, find the highest score among that course's results
+   rows, using each student's LATEST counted attempt only (same chronological
+   dedup as computeGpaStats in the frontend — latest by updated_at then
+   created_at).  Returns course_code, course_title, top_score, and
+   top_scorers (array of {reg_no, student_name}) — including ALL ties. */
+router.get('/top-scores', async (req, res) => {
+  try {
+    const { year, semester } = req.query;
+    const userId = req.user.id;
+
+    let query = supabaseAdmin
+      .from('results')
+      .select('course_code, course_title, score, reg_no, student_name, updated_at, created_at')
+      .eq('created_by', userId)
+      .not('reg_no', 'is', null);
+
+    if (year) {
+      query = query.eq('year', year);
+    }
+    if (semester) {
+      query = query.eq('semester', semester);
+    }
+
+    const { data: results, error } = await query;
+    if (error) {
+      console.error('Dashboard top-scores error:', error.message);
+      return res.status(500).json({ error: 'Failed to load top scores' });
+    }
+
+    // Deduplicate: for each (reg_no, course_code) pick the latest by updated_at/created_at
+    const YEAR_ORDER = ['Year 1','Year 2','Year 3','Year 4','Year 5','Year 6','Year 7','Year 8','Year 9','Year 10'];
+    const SEMESTER_ORDER = ['Harmattan Semester','Rain Semester'];
+
+    const latestByKey = {};
+    (results || []).forEach(r => {
+      if (!r.score && r.score !== 0) return;
+      const key = `${r.reg_no || ''}||${r.course_code || ''}`;
+      const existing = latestByKey[key];
+      if (!existing) {
+        latestByKey[key] = r;
+        return;
+      }
+      const compare = (a, b) => {
+        const at = a.updated_at || a.created_at || '';
+        const bt = b.updated_at || b.created_at || '';
+        if (!at && !bt) return 0;
+        if (!at) return -1;
+        if (!bt) return 1;
+        return at < bt ? -1 : at > bt ? 1 : 0;
+      };
+      if (compare(r, existing) > 0) {
+        latestByKey[key] = r;
+      }
+    });
+
+    // Group by course_code and find max score per course
+    const byCourse = {};
+    Object.values(latestByKey).forEach(r => {
+      const code = (r.course_code || '').trim().toUpperCase();
+      if (!code) return;
+      if (!byCourse[code]) byCourse[code] = [];
+      byCourse[code].push(r);
+    });
+
+    const output = Object.keys(byCourse).map(code => {
+      const rows = byCourse[code];
+      const maxScore = Math.max(...rows.map(r => parseFloat(r.score)));
+      const scorers = rows
+        .filter(r => parseFloat(r.score) === maxScore)
+        .map(r => ({ reg_no: r.reg_no || '', student_name: r.student_name || '' }));
+      return {
+        course_code: rows[0].course_code || '',
+        course_title: rows[0].course_title || '',
+        top_score: maxScore,
+        top_scorers: scorers
+      };
+    }).sort((a, b) => {
+      if (a.top_score !== b.top_score) return b.top_score - a.top_score;
+      return a.course_code < b.course_code ? -1 : a.course_code > b.course_code ? 1 : 0;
+    });
+
+    res.json(output);
+  } catch (err) {
+    console.error('Dashboard top-scores server error:', err.message);
     res.status(500).json({ error: 'Server error' });
   }
 });

@@ -79,15 +79,6 @@ router.post('/portal/:slug/lookup', async (req, res) => {
       }
     }
 
-    const { data: creditLoad, error: creditLoadError } = await supabaseAdmin
-      .from('credit_load_settings')
-      .select('year, semester, total_units')
-      .eq('user_id', settings.user_id);
-
-    if (creditLoadError) {
-      console.error('Public portal credit load error:', creditLoadError.message);
-    }
-
     const { data: academicSessions, error: academicSessionsError } = await supabaseAdmin
       .from('academic_sessions')
       .select('year, session_label')
@@ -100,12 +91,6 @@ router.post('/portal/:slug/lookup', async (req, res) => {
     if (!results || results.length === 0) {
       return res.status(401).json({ error: 'No results found for that passcode and registration number.' });
     }
-
-    const creditLoadMap = {};
-    (creditLoad || []).forEach(row => {
-      if (!creditLoadMap[row.year]) creditLoadMap[row.year] = {};
-      creditLoadMap[row.year][row.semester] = row.total_units;
-    });
 
     const academicSessionsMap = {};
     (academicSessions || []).forEach(row => {
@@ -128,7 +113,6 @@ router.post('/portal/:slug/lookup', async (req, res) => {
       regNo: trimmedRegNo,
       studentName: studentRecord?.full_name || results[0]?.student_name || '',
       results: resultsWithProgram,
-      creditLoad: creditLoadMap,
       academicSessions: academicSessionsMap
     });
   } catch (err) {

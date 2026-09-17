@@ -100,9 +100,8 @@ function buildBlocks(results) {
   return blocks;
 }
 
-function buildSemesterHtml(rows, yearKey, sem, creditLoad, academicSessions) {
-  const configuredTotal = (creditLoad && creditLoad[yearKey] && creditLoad[yearKey][sem]) || null;
-  const stats = computeGpaStats(rows, configuredTotal);
+function buildSemesterHtml(rows, yearKey, sem, academicSessions) {
+  const stats = computeGpaStats(rows);
   let tableRows = '';
   rows.forEach(r => {
     const gi = gradeInfo(r.score);
@@ -113,10 +112,7 @@ function buildSemesterHtml(rows, yearKey, sem, creditLoad, academicSessions) {
   });
 
   const semGpaText = stats.gpa !== null ? stats.gpa.toFixed(2) : '—';
-  let semTotalsHtml = `<span>Units: <b>${stats.unitsEntered}</b></span><span>Semester GPA: <b>${semGpaText}</b></span>`;
-  if (stats.unitsConfigured !== null) {
-    semTotalsHtml += `<span>Completion: <b>${stats.unitsEntered} of ${stats.unitsConfigured} units (${stats.percentComplete}%)</b></span>`;
-  }
+  const semTotalsHtml = `<span>Units: <b>${stats.unitsEntered}</b></span><span>Semester GPA: <b>${semGpaText}</b></span>`;
 
   const sessionPart = academicSessions && academicSessions[yearKey] ? ` — ${academicSessions[yearKey]}` : '';
 
@@ -128,7 +124,7 @@ function buildSemesterHtml(rows, yearKey, sem, creditLoad, academicSessions) {
   `;
 }
 
-function renderResultsBlocks(blocks, creditLoad, academicSessions) {
+function renderResultsBlocks(blocks, academicSessions) {
   const YEAR_KEYS = Object.keys(blocks).sort();
   let html = '';
 
@@ -136,7 +132,7 @@ function renderResultsBlocks(blocks, creditLoad, academicSessions) {
     let semHtml = '';
     const semesters = Object.keys(blocks[yearKey]).sort();
     semesters.forEach(sem => {
-      semHtml += buildSemesterHtml(blocks[yearKey][sem], yearKey, sem, creditLoad, academicSessions);
+      semHtml += buildSemesterHtml(blocks[yearKey][sem], yearKey, sem, academicSessions);
     });
     const yearLabel = `${yearKey}${academicSessions && academicSessions[yearKey] ? ' — ' + academicSessions[yearKey] : ''}`;
     html += `<div class="t-year-block" data-year="${escHtml(yearKey)}"><h4>${yearLabel}</h4>${semHtml}</div>`;
@@ -145,9 +141,8 @@ function renderResultsBlocks(blocks, creditLoad, academicSessions) {
   return html;
 }
 
-function computeOverallStats(blocks, creditLoad, academicSessions) {
+function computeOverallStats(blocks, academicSessions) {
   const allStudentRows = [];
-  let cumConfiguredTotal = 0;
   const YEAR_KEYS = Object.keys(blocks).sort();
 
   YEAR_KEYS.forEach(yearKey => {
@@ -155,12 +150,10 @@ function computeOverallStats(blocks, creditLoad, academicSessions) {
     semesters.forEach(sem => {
       const rows = blocks[yearKey][sem];
       allStudentRows.push(...rows);
-      const configuredTotal = (creditLoad && creditLoad[yearKey] && creditLoad[yearKey][sem]) || null;
-      if (configuredTotal) cumConfiguredTotal += configuredTotal;
     });
   });
 
-  return { allStudentRows, cumConfiguredTotal };
+  return { allStudentRows };
 }
 
 function populateYearFilter(blocks, academicSessions) {
@@ -181,7 +174,7 @@ function populateYearFilter(blocks, academicSessions) {
   });
 }
 
-function applyYearFilter(blocks, creditLoad, academicSessions) {
+function applyYearFilter(blocks, academicSessions) {
   const yearBlocks = document.querySelectorAll('#resultBlocks .t-year-block');
   const filterSelect = document.getElementById('yearFilter');
   const selectedYear = filterSelect ? filterSelect.value : 'all';
@@ -201,32 +194,21 @@ function applyYearFilter(blocks, creditLoad, academicSessions) {
 
   if (selectedYear === 'all') {
     cgpaLabel.textContent = 'Cumulative Grade Point Average (CGPA)';
-    const { allStudentRows, cumConfiguredTotal } = computeOverallStats(blocks, creditLoad, academicSessions);
-    const cumStats = computeGpaStats(allStudentRows, cumConfiguredTotal || null);
+    const { allStudentRows } = computeOverallStats(blocks, academicSessions);
+    const cumStats = computeGpaStats(allStudentRows);
     const cgpaText = cumStats.gpa !== null ? cumStats.gpa.toFixed(2) : '—';
-    let cgpaHtml = `<span>CGPA: <b>${cgpaText}</b></span>`;
-    if (cumStats.unitsConfigured !== null) {
-      cgpaHtml = `<span>CGPA: <b>${cgpaText}</b></span><span>Completion: <b>${cumStats.unitsEntered} of ${cumStats.unitsConfigured} units (${cumStats.percentComplete}%)</b></span>`;
-    }
-    cgpaValue.innerHTML = cgpaHtml;
+    cgpaValue.innerHTML = `<span>CGPA: <b>${cgpaText}</b></span>`;
   } else {
     cgpaLabel.textContent = 'Year GPA';
     const yearRows = [];
-    let yearConfiguredTotal = 0;
     const semesters = Object.keys(blocks[selectedYear]).sort();
     semesters.forEach(sem => {
       const rows = blocks[selectedYear][sem];
       yearRows.push(...rows);
-      const configuredTotal = (creditLoad && creditLoad[selectedYear] && creditLoad[selectedYear][sem]) || null;
-      if (configuredTotal) yearConfiguredTotal += configuredTotal;
     });
-    const yearStats = computeGpaStats(yearRows, yearConfiguredTotal || null);
+    const yearStats = computeGpaStats(yearRows);
     const yearGpaText = yearStats.gpa !== null ? yearStats.gpa.toFixed(2) : '—';
-    let yearHtml = `<span>Year GPA: <b>${yearGpaText}</b></span>`;
-    if (yearStats.unitsConfigured !== null) {
-      yearHtml = `<span>Year GPA: <b>${yearGpaText}</b></span><span>Completion: <b>${yearStats.unitsEntered} of ${yearStats.unitsConfigured} units (${yearStats.percentComplete}%)</b></span>`;
-    }
-    cgpaValue.innerHTML = yearHtml;
+    cgpaValue.innerHTML = `<span>Year GPA: <b>${yearGpaText}</b></span>`;
   }
 }
 
@@ -270,7 +252,6 @@ checkForm.addEventListener('submit', async (e) => {
       faculty: data.faculty,
       department: data.department,
       results: data.results,
-      creditLoad: data.creditLoad || {},
       academicSessions: data.academicSessions || {}
     };
 
@@ -283,14 +264,14 @@ checkForm.addEventListener('submit', async (e) => {
     const blocks = buildBlocks(data.results);
     populateYearFilter(blocks, data.academicSessions || {});
 
-    document.getElementById('resultBlocks').innerHTML = renderResultsBlocks(blocks, data.creditLoad || {}, data.academicSessions || {});
+    document.getElementById('resultBlocks').innerHTML = renderResultsBlocks(blocks, data.academicSessions || {});
 
     const yearFilterWrap = document.querySelector('.year-filter-wrap');
     if (yearFilterWrap) yearFilterWrap.style.display = 'block';
 
     currentYearFilter = 'all';
     document.getElementById('yearFilter').value = 'all';
-    applyYearFilter(blocks, data.creditLoad || {}, data.academicSessions || {});
+    applyYearFilter(blocks, data.academicSessions || {});
 
     checkResult.style.display = 'block';
   } catch (err) {
@@ -305,7 +286,7 @@ document.getElementById('yearFilter').addEventListener('change', function() {
   if (!lastResultsData) return;
   const blocks = buildBlocks(lastResultsData.results || []);
   currentYearFilter = this.value;
-  applyYearFilter(blocks, lastResultsData.creditLoad || {}, lastResultsData.academicSessions || {});
+  applyYearFilter(blocks, lastResultsData.academicSessions || {});
 });
 
 function escHtml(v) { return (v === undefined || v === null) ? '' : String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }

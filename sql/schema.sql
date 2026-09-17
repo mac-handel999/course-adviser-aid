@@ -143,10 +143,13 @@ create table if not exists public.credit_load_settings (
 
 alter table public.credit_load_settings enable row level security;
 
--- Primary enforcement is in the Express API routes (server/routes/creditLoad.js),
--- because the API uses the Supabase service role key which bypasses RLS.
--- These RLS policies are a secondary safeguard in case the anon key is ever
--- used to query this table directly, bypassing the API.
+-- Primary enforcement was in the Express API routes (server/routes/creditLoad.js),
+-- because the API used the Supabase service role key which bypassed RLS.
+-- The credit-load feature has been removed; this table is left in place as
+-- harmless unused data. Drop it only if the project owner explicitly requests
+-- a full cleanup. RLS policies remain as a secondary safeguard.
+--
+-- Authenticated users can read own credit load"
 
 drop policy if exists "Authenticated users can read own credit load" on public.credit_load_settings;
 drop policy if exists "Authenticated users can insert own credit load" on public.credit_load_settings;
