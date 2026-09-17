@@ -531,6 +531,127 @@ async function commitImport(rows, yearKey, sem) {
   if (updated) parts.push(`${updated} updated`);
   if (skipped) parts.push(`${skipped} skipped (not on roster)`);
   alert(`${parts.join(', ')}.`);
+  }
+
+async function handleImageScan(input, yearKey, sem) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+
+  // Reject files that are too large for base64 upload to server
+  const MAX_BYTES = 15 * 1024 * 1024; // 15 MB
+  if (file.size > MAX_BYTES) {
+    alert(`File is too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Please use a smaller image.`);
+    input.value = '';
+    return;
+  }
+
+  const isImage = file.type.startsWith('image/');
+  const isPdf = file.type === 'application/pdf';
+
+  if (!isImage && !isPdf) {
+    alert('Please select a JPG, PNG, or PDF file.');
+    input.value = '';
+    return;
+  }
+
+  showLoading('Scanning results…');
+  try {
+    let imageBase64, mimeType;
+
+    if (isImage) {
+      imageBase64 = await fileToBase64(file);
+      mimeType = file.type || 'image/jpeg';
+    } else {
+      // PDF: render first page to canvas image using pdfjs
+      imageBase64 = await pdfPageToBase64(file, 0);
+      mimeType = 'image/jpeg';
+    }
+
+    const response = await apiFetch('/api/ocr/scan-result', {
+      method: 'POST',
+      body: JSON.stringify({ imageBase64, mimeType })
+    });
+
+    const { data } = response;
+    if (!data || !data.length) {
+      alert('No student records were detected in this image. Try a clearer photo with the table fully in frame.');
+      input.value = '';
+      return;
+    }
+
+    // Convert AI output to raw rows that mapRowFields can process
+    const rawRows = data.map(row => ({
+      'Reg No': row.reg_no,
+      Test: row.test,
+      Lab: row.lab,
+      Exam: row.exam,
+      Remark: row.remark || ''
+    }));
+
+    // Feed into the existing import pipeline
+    const mapped = rawRows.map(r => mapRowFields(r));
+
+    // Ensure student roster is loaded for cross-matching
+    if (!studentRoster.loaded) {
+      await loadStudents();
+    }
+
+    const activeCourse = (state.activeCourse && state.activeCourse.yearKey === yearKey && state.activeCourse.sem === sem)
+      ? state.courses[yearKey]?.[sem]?.find(c => c.id === state.activeCourse.courseId)
+      : null;
+
+    // Detect component columns (Test/Lab/Exam present with non-zero values)
+    const hasComponentColumns = mapped.some(r =>
+      (r.test_score !== '' && r.test_score !== 0 && r.test_score !== undefined) ||
+      (r.lab_score !== '' && r.lab_score !== 0 && r.lab_score !== undefined) ||
+      (r.exam_score !== '' && r.exam_score !== 0 && r.exam_score !== undefined)
+    );
+
+    const existingRows = activeCourse
+      ? state.years[yearKey][sem].filter(r => r.course_id === activeCourse.id)
+      : [];
+
+    const parsed = validateImportRows(mapped, yearKey, sem, activeCourse, existingRows, hasComponentColumns, false, studentRoster.all);
+    if (!parsed.valid.length) {
+      alert(`No valid rows extracted. ${parsed.errors.length} row(s) have errors:\n${parsed.errors.map(e => e.errors.join('; ')).join('\n')}`);
+      input.value = '';
+      return;
+    }
+
+    renderImportPreview(parsed, yearKey, sem, activeCourse);
+  } catch (err) {
+    alert((err && err.message) || 'Failed to scan image. Please try again.');
+  } finally {
+    hideLoading();
+    input.value = '';
+  }
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('Failed to read file.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function pdfPageToBase64(file, pageIndex) {
+  if (typeof pdfjsLib === 'undefined') {
+    throw new Error('PDF processing library not loaded. Please use an image file instead.');
+  }
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+  const arrayBuffer = await file.arrayBuffer();
+  const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+  const pdf = await loadingTask.promise;
+  const page = await pdf.getPage(pageIndex + 1);
+  const viewport = page.getViewport({ scale: 2 });
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width = viewport.width;
+  canvas.height = viewport.height;
+  await page.render({ canvasContext: ctx, viewport }).promise;
+  return canvas.toDataURL('image/jpeg', 0.85);
 }
 
 async function handleImportFile(input, yearKey, sem) {
@@ -659,6 +780,8 @@ function renderSemesterBlock(yearKey, sem) {
         <div class="toolbar">
           <button class="btn secondary" onclick="document.getElementById('import-${yearKey}-${semSlug}').click()">Import from file</button>
           <input type="file" id="import-${yearKey}-${semSlug}" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleImportFile(this, '${yearKey}', '${sem}')">
+          <button class="btn secondary" id="scan-btn-${yearKey}-${semSlug}" onclick="document.getElementById('scan-${yearKey}-${semSlug}').click()">AI Scan Results</button>
+          <input type="file" id="scan-${yearKey}-${semSlug}" accept="image/*;capture=camera,.pdf" style="display:none" onchange="handleImageScan(this, '${yearKey}', '${sem}')">
           <button class="btn gold" onclick="exportSemesterExcel('${yearKey}','${sem}')">Export to Excel</button>
           <button class="btn secondary" onclick="printSemester('${yearKey}','${sem}')">Print / PDF</button>
         </div>
@@ -808,6 +931,8 @@ function renderCourseRoster(yearKey, sem) {
             <button class="btn secondary" onclick="showAddStudentModal('${yearKey}','${sem}',true)">Add carry-over student</button>
             <button class="btn secondary" onclick="document.getElementById('import-${yearKey}-${semSlug}').click()">Import from file</button>
             <input type="file" id="import-${yearKey}-${semSlug}" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleImportFile(this, '${yearKey}', '${sem}')">
+            <button class="btn secondary" id="scan-btn-${course.id}" onclick="document.getElementById('scan-${course.id}').click()">AI Scan Results</button>
+            <input type="file" id="scan-${course.id}" accept="image/*;capture=camera,.pdf" style="display:none" onchange="handleImageScan(this, '${yearKey}', '${sem}')">
             <label class="checkbox-row" style="display:inline-flex;align-items:center;font-size:12px;color:var(--muted)" onclick="toggleCourseMode('${course.id}', event)">
             <input type="checkbox" id="mode-toggle-${course.id}" ${course.use_score_components ? 'checked' : ''} style="margin-right:4px">Use Test/Lab/Exam breakdown</label>
             <button class="btn gold" onclick="exportCourseExcel('${course.id}', '${escAttr(course.course_code)}', '${yearKey}', '${sem}')">Export to Excel</button>

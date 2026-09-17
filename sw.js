@@ -1,4 +1,4 @@
-const CACHE_NAME = 'advyza-v1';
+const CACHE_NAME = 'advyza-v2';
 const APP_SHELL = [
   '/',
   '/app.html',

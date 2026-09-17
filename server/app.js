@@ -10,6 +10,7 @@ const coursesRouter = require('./routes/courses');
 const studentsRouter = require('./routes/students');
 const publicPortalRouter = require('./routes/publicPortal');
 const dashboardRouter = require('./routes/dashboard');
+const ocrRouter = require('./routes/ocr');
 
 const app = express();
 
@@ -24,6 +25,7 @@ app.use('/api/academic-sessions', academicSessionsRouter);
 app.use('/api/courses', coursesRouter);
 app.use('/api/students', studentsRouter);
 app.use('/api/dashboard', dashboardRouter);
+app.use('/api/ocr', ocrRouter);
 app.use('/api/public', publicPortalRouter);
 
 app.get('/api/health', (req, res) => {
