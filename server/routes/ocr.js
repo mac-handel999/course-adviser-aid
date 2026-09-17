@@ -70,7 +70,7 @@ router.post('/scan-result', async (req, res) => {
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
         response = await ai.models.generateContent({
-          model: 'gemini-3.8-flash',
+          model: 'gemini-3.6-flash',
           config: {
             responseMimeType: 'application/json',
             responseSchema: resultSchema,
