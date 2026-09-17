@@ -570,6 +570,11 @@ async function handleImageScan(input, yearKey, sem) {
     const response = await apiFetch('/api/ocr/scan-result', {
       method: 'POST',
       body: JSON.stringify({ imageBase64, mimeType })
+    }).catch(err => {
+      if (err.message && err.message.includes('413')) {
+        throw new Error('Image is too large. Please use a smaller photo or a lower resolution.');
+      }
+      throw err;
     });
 
     const { data } = response;
