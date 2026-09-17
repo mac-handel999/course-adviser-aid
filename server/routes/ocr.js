@@ -7,7 +7,7 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 const resultSchema = {
   type: SchemaType.ARRAY,
-  description: 'List of student scores extracted from a result sheet table',
+  description: 'List of student scores extracted from result sheet table',
   items: {
     type: SchemaType.OBJECT,
     properties: {
@@ -36,6 +36,8 @@ If no student table is visible, return an empty array [].
 router.use(requireAuth);
 
 router.post('/scan-result', async (req, res) => {
+  const GEMINI_TIMEOUT_MS = 90000;
+
   try {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
@@ -50,18 +52,14 @@ router.post('/scan-result', async (req, res) => {
       return res.status(400).json({ error: 'No image payload provided.' });
     }
 
-    // Dynamically detect MIME type (png, jpeg, webp, etc.)
-    let mimeType = 'image/png';
-    let cleanBase64 = imageBase64;
-
+    // Clean up base64 string and extract MIME type
     const mimeMatch = imageBase64.match(/^data:(image\/\w+);base64,/);
-    if (mimeMatch) {
-      mimeType = mimeMatch[1];
-      cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '');
-    }
+    const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
+    const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '').trim();
 
+    // Use the current stable model endpoint with a timeout
     const model = genAI.getGenerativeModel({
-      model: 'gemini-3.6-flash',
+      model: 'gemini-3.8-flash',
       generationConfig: {
         responseMimeType: 'application/json',
         responseSchema: resultSchema,
@@ -75,7 +73,24 @@ router.post('/scan-result', async (req, res) => {
       },
     };
 
-    const result = await model.generateContent([SCAN_PROMPT, imagePart]);
+    // The SDK's timeout option internally creates an AbortController
+    // to abort the request after the specified duration.
+    let result;
+    try {
+      result = await model.generateContent([SCAN_PROMPT, imagePart], {
+        timeout: GEMINI_TIMEOUT_MS,
+      });
+    } catch (genErr) {
+      if (genErr.name === 'AbortError' || genErr.message.includes('timed out')) {
+        console.error('OCR: Gemini request timed out');
+        return res.status(504).json({
+          error: 'Gemini API timed out.',
+          details: 'The image is too large or the network is slow. Try a smaller image or fewer students.'
+        });
+      }
+      throw genErr;
+    }
+
     const text = result.response.text();
 
     let extracted;
@@ -110,11 +125,14 @@ router.post('/scan-result', async (req, res) => {
     res.json({ success: true, data: cleaned });
   } catch (err) {
     console.error('OCR scan-result error:', err.message);
-    // Surface useful details to the client for debugging
-    const isFetchError = err.message && err.message.includes('fetch failed');
-    const details = isFetchError
-      ? 'Network error contacting Gemini API. Verify GEMINI_API_KEY is set and the server can reach generativelanguage.googleapis.com.'
-      : err.message || 'Unknown error';
+    let details = err.message || 'Unknown error';
+
+    if (err.name === 'AbortError') {
+      details = 'Gemini API timed out after ' + (GEMINI_TIMEOUT_MS / 1000) + 's. Try a smaller image or fewer students.';
+    } else if (err.message && err.message.includes('fetch failed')) {
+      details = 'Network error contacting Gemini API. Verify GEMINI_API_KEY is set and the server can reach generativelanguage.googleapis.com.';
+    }
+
     res.status(500).json({
       error: 'Failed to process image.',
       details
