@@ -1,20 +1,20 @@
 const express = require('express');
 const router = express.Router();
-const { GoogleGenerativeAI, SchemaType } = require('@google/generative-ai');
+const { GoogleGenAI, Type } = require('@google/genai');
 const requireAuth = require('../middleware/requireAuth');
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
 const resultSchema = {
-  type: SchemaType.ARRAY,
+  type: Type.ARRAY,
   description: 'List of student scores extracted from result sheet table',
   items: {
-    type: SchemaType.OBJECT,
+    type: Type.OBJECT,
     properties: {
-      reg_no: { type: SchemaType.STRING, description: 'Registration number, e.g., 20241444752. Strip all non-digit characters and keep the first 11 digits.' },
-      test: { type: SchemaType.NUMBER, description: 'Test score or 0 if empty/nan/dashed' },
-      lab: { type: SchemaType.NUMBER, description: 'Lab/Practical score or 0 if empty/nan/dashed' },
-      exam: { type: SchemaType.NUMBER, description: 'Exam score or 0 if empty/nan/dashed' }
+      reg_no: { type: Type.STRING, description: 'Registration number, e.g., 20241444752. Strip all non-digit characters and keep the first 11 digits.' },
+      test: { type: Type.NUMBER, description: 'Test score or 0 if empty/nan/dashed' },
+      lab: { type: Type.NUMBER, description: 'Lab/Practical score or 0 if empty/nan/dashed' },
+      exam: { type: Type.NUMBER, description: 'Exam score or 0 if empty/nan/dashed' }
     },
     required: ['reg_no']
   }
@@ -57,47 +57,46 @@ router.post('/scan-result', async (req, res) => {
     const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
     const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '').trim();
 
-    // Use the current stable model endpoint with a timeout
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-3.8-flash',
-      generationConfig: {
-        responseMimeType: 'application/json',
-        responseSchema: resultSchema,
-      },
-    });
+    // AbortController for timeout — the new SDK supports abortSignal via config
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
 
-    const imagePart = {
-      inlineData: {
-        data: cleanBase64,
-        mimeType: mimeType,
-      },
-    };
-
-    // The SDK's timeout option internally creates an AbortController
-    // to abort the request after the specified duration.
-    let result;
+    let response;
     try {
-      result = await model.generateContent([SCAN_PROMPT, imagePart], {
-        timeout: GEMINI_TIMEOUT_MS,
+      response = await ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: resultSchema,
+          abortSignal: controller.signal,
+        },
+        contents: [{
+          role: 'user',
+          parts: [
+            { text: SCAN_PROMPT },
+            { inlineData: { data: cleanBase64, mimeType: mimeType } }
+          ]
+        }]
       });
     } catch (genErr) {
-      if (genErr.name === 'AbortError' || genErr.message.includes('timed out')) {
-        console.error('OCR: Gemini request timed out');
+      if (genErr.name === 'AbortError') {
         return res.status(504).json({
           error: 'Gemini API timed out.',
           details: 'The image is too large or the network is slow. Try a smaller image or fewer students.'
         });
       }
       throw genErr;
+    } finally {
+      clearTimeout(timeoutId);
     }
 
-    const text = result.response.text();
+    const text = response.text;
 
     let extracted;
     try {
-      extracted = JSON.parse(text);
+      extracted = JSON.parse(text || '[]');
     } catch (parseErr) {
-      console.error('Gemini JSON parse error:', parseErr.message, text.slice(0, 500));
+      console.error('Gemini JSON parse error:', parseErr.message, (text || '').slice(0, 500));
       return res.status(502).json({
         error: 'AI returned invalid JSON.',
         details: 'The AI model returned a response that could not be parsed as JSON. Try a clearer photo with less overlap between text rows.'
@@ -127,9 +126,7 @@ router.post('/scan-result', async (req, res) => {
     console.error('OCR scan-result error:', err.message);
     let details = err.message || 'Unknown error';
 
-    if (err.name === 'AbortError') {
-      details = 'Gemini API timed out after ' + (GEMINI_TIMEOUT_MS / 1000) + 's. Try a smaller image or fewer students.';
-    } else if (err.message && err.message.includes('fetch failed')) {
+    if (err.message && err.message.includes('fetch failed')) {
       details = 'Network error contacting Gemini API. Verify GEMINI_API_KEY is set and the server can reach generativelanguage.googleapis.com.';
     }
 
