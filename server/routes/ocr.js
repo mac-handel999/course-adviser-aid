@@ -61,33 +61,70 @@ router.post('/scan-result', async (req, res) => {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
 
+    // Retry with exponential backoff for transient 503/demand errors
+    const MAX_RETRIES = 3;
+    const RETRY_BASE_MS = 2000;
     let response;
-    try {
-      response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: resultSchema,
-          abortSignal: controller.signal,
-        },
-        contents: [{
-          role: 'user',
-          parts: [
-            { text: SCAN_PROMPT },
-            { inlineData: { data: cleanBase64, mimeType: mimeType } }
-          ]
-        }]
-      });
-    } catch (genErr) {
-      if (genErr.name === 'AbortError') {
+    let lastErr;
+
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        response = await ai.models.generateContent({
+          model: 'gemini-3.8-flash',
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: resultSchema,
+            abortSignal: controller.signal,
+          },
+          contents: [{
+            role: 'user',
+            parts: [
+              { text: SCAN_PROMPT },
+              { inlineData: { data: cleanBase64, mimeType: mimeType } }
+            ]
+          }]
+        });
+        lastErr = null;
+        break;
+      } catch (genErr) {
+        lastErr = genErr;
+        if (genErr.name === 'AbortError') break; // Don't retry on timeout
+
+        const errStr = genErr.message || '';
+        const isDemandError = errStr.includes('503') || errStr.includes('UNAVAILABLE') ||
+                              errStr.includes('high demand') || errStr.includes('overloaded');
+
+        if (!isDemandError || attempt >= MAX_RETRIES) break;
+
+        // Exponential backoff: 2s, 4s, 8s
+        const delay = RETRY_BASE_MS * Math.pow(2, attempt);
+        console.warn(`Gemini demand error (attempt ${attempt + 1}/${MAX_RETRIES + 1}), retrying in ${delay}ms:`, errStr.slice(0, 100));
+        await new Promise(r => setTimeout(r, delay));
+      }
+    }
+
+    clearTimeout(timeoutId);
+
+    if (!response) {
+      // All retries exhausted or timeout
+      if (lastErr && lastErr.name === 'AbortError') {
         return res.status(504).json({
           error: 'Gemini API timed out.',
           details: 'The image is too large or the network is slow. Try a smaller image or fewer students.'
         });
       }
-      throw genErr;
-    } finally {
-      clearTimeout(timeoutId);
+      const errStr = lastErr && lastErr.message ? lastErr.message : 'Unknown error';
+      const isDemandError = errStr.includes('503') || errStr.includes('UNAVAILABLE') ||
+                            errStr.includes('high demand') || errStr.includes('overloaded');
+
+      if (isDemandError) {
+        console.error('Gemini demand error after retries:', errStr.slice(0, 300));
+        return res.status(503).json({
+          error: 'Gemini API is currently busy.',
+          details: 'The model is experiencing high demand. Please try again in a minute.'
+        });
+      }
+      throw lastErr;
     }
 
     const text = response.text;

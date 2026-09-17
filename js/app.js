@@ -625,8 +625,19 @@ async function handleImageScan(input, yearKey, sem) {
 
     renderImportPreview(parsed, yearKey, sem, activeCourse);
   } catch (err) {
-    const errMsg = (err && err.message) || 'Failed to scan image. Please try again.';
-    const errDetails = (err && err.details) || '';
+    let errMsg = err.message || 'Failed to scan image. Please try again.';
+    let errDetails = err.details || '';
+
+    // apiFetch throws "API {status}: {body}" — try to parse the JSON body
+    const match = errMsg.match(/^API \d+: (.*)$/);
+    if (match) {
+      try {
+        const body = JSON.parse(match[1]);
+        errMsg = body.error || errMsg;
+        errDetails = body.details || '';
+      } catch (e) { /* not JSON, keep original */ }
+    }
+
     alert(errDetails ? `${errMsg}\n\n${errDetails}` : errMsg);
   } finally {
     hideLoading();
