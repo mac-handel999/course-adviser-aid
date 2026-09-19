@@ -21,6 +21,7 @@
 const LOADING_TIMEOUT_MS = 8000;
 
 let loadingTimer = null;
+let loadingTimeoutDuration = LOADING_TIMEOUT_MS;
 
 function ensureLoadingOverlay() {
   let overlay = document.getElementById('loadingOverlay');
@@ -38,16 +39,35 @@ function ensureLoadingOverlay() {
   return overlay;
 }
 
-function showLoading(message) {
+function showLoading(message, timeoutMs) {
   const overlay = ensureLoadingOverlay();
   const msgEl = overlay.querySelector('.loading-message');
   if (msgEl) msgEl.textContent = message || 'Loading…';
   overlay.style.display = 'flex';
 
   if (loadingTimer) clearTimeout(loadingTimer);
+  loadingTimeoutDuration = timeoutMs || LOADING_TIMEOUT_MS;
   loadingTimer = setTimeout(function () {
     hideLoading();
-  }, LOADING_TIMEOUT_MS);
+  }, loadingTimeoutDuration);
+}
+
+function updateLoadingMessage(message) {
+  const overlay = document.getElementById('loadingOverlay');
+  if (!overlay) return;
+  const msgEl = overlay.querySelector('.loading-message');
+  if (msgEl) msgEl.textContent = message;
+}
+
+function clearLoadingTimer() {
+  if (loadingTimer) {
+    clearTimeout(loadingTimer);
+    loadingTimer = null;
+  }
+}
+
+function showLoadingLong(message) {
+  showLoading(message, 120000);
 }
 
 function hideLoading() {
@@ -67,3 +87,44 @@ async function withLoading(promise, message) {
     hideLoading();
   }
 }
+
+/* ===================== SCROLL TO TOP ===================== */
+let scrollToTopEl = null;
+const SCROLL_THRESHOLD = 400;
+
+function ensureScrollToTopBtn() {
+  if (scrollToTopEl) return scrollToTopEl;
+  const btn = document.createElement('button');
+  btn.id = 'scrollToTopBtn';
+  btn.className = 'scroll-to-top';
+  btn.setAttribute('aria-label', 'Scroll to top');
+  btn.innerHTML = '&#86;&#8679;';
+  document.body.appendChild(btn);
+  btn.addEventListener('click', () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+  scrollToTopEl = btn;
+  return btn;
+}
+
+function initScrollToTop() {
+  const btn = ensureScrollToTopBtn();
+  let ticking = false;
+
+  function onScroll() {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(() => {
+      const scrolled = window.scrollY > SCROLL_THRESHOLD;
+      btn.style.opacity = scrolled ? '1' : '0';
+      btn.style.visibility = scrolled ? 'visible' : 'hidden';
+      btn.style.transform = scrolled ? 'translateY(0)' : 'translateY(20px)';
+      ticking = false;
+    });
+  }
+
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+}
+
+document.addEventListener('DOMContentLoaded', initScrollToTop);

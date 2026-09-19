@@ -11,9 +11,15 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 </head>
 
-<body>
+  <body>
+    <div id="authLoadingGate" style="position:fixed;inset:0;background:rgba(252,252,249,0.92);display:none;align-items:center;justify-content:center;z-index:9999">
+      <div class="loading-content">
+        <img src="assets/advyza-logo.svg" class="loading-logo" alt="Advyza">
+        <div class="loading-message">Signing in…</div>
+      </div>
+    </div>
 
-  <header class="site-header">
+    <header class="site-header">
     <div class="wrap">
       <a class="brand-mark" href="index.html">
         <img src="assets/advyza-logo.svg" alt="" class="crest-img">

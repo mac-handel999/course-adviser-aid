@@ -104,6 +104,10 @@ a.btn.gold {
 }
 
 .loading-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   text-align: center;
 }
 
@@ -122,4 +126,39 @@ a.btn.gold {
 @keyframes loading-pulse {
   0%, 100% { opacity: 0.35; transform: scale(1); }
   50% { opacity: 1; transform: scale(1.05); }
+}
+
+/* ---------- scroll to top button ---------- */
+.scroll-to-top {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--green-deep);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(20px);
+  transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s;
+  z-index: 50;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
+
+.scroll-to-top:hover {
+  opacity: 1;
+  transform: translateY(0) scale(1.1);
+}
+
+@media (max-width: 860px) {
+  .scroll-to-top {
+    bottom: 80px;
+  }
 }

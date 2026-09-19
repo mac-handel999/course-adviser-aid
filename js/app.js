@@ -76,6 +76,23 @@ function switchView(view) {
   render();
 }
 
+function scrollToSemester(yearKey, sem) {
+  const semSlug = sem.replace(/\s+/g, '-');
+  let el = document.getElementById(`semester-${yearKey}-${semSlug}`);
+  if (!el) {
+    const headings = document.querySelectorAll('.semester-head h3');
+    for (const h of headings) {
+      if (h.textContent.trim() === sem) {
+        el = h.closest('.semester');
+        break;
+      }
+    }
+  }
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+}
+
 function sanitizeRegNo(value) {
   return String(value || '').replace(/\D/g, '').slice(0, 11);
 }
@@ -225,7 +242,7 @@ function parseImportFile(file) {
   });
 }
 
-function validateImportRows(rawRows, yearKey, sem, activeCourse, existingRows, hasComponentColumns, componentMismatch, studentRosterList) {
+function validateImportRows(rawRows, yearKey, sem, activeCourse, existingRows, hasComponentColumns, componentMismatch, studentRosterList, isOcrScan = false) {
   const errors = [];
   const fileErrors = [];
   const valid = [];
@@ -297,13 +314,14 @@ function validateImportRows(rawRows, yearKey, sem, activeCourse, existingRows, h
         }
       }
     } else {
-      // Flat-table import (no active course): all columns required
-      if (!code) rowErrors.push('Course Code is required.');
-      if (unitRaw === '' || unitRaw === null || unitRaw === undefined) {
-        rowErrors.push('Credit Unit is required.');
-      } else {
-        const unitNum = parseFloat(unitRaw);
-        if (isNaN(unitNum) || unitNum <= 0) rowErrors.push('Credit Unit must be a number greater than 0.');
+      if (!isOcrScan) {
+        if (!code) rowErrors.push('Course Code is required.');
+        if (unitRaw === '' || unitRaw === null || unitRaw === undefined) {
+          rowErrors.push('Credit Unit is required.');
+        } else {
+          const unitNum = parseFloat(unitRaw);
+          if (isNaN(unitNum) || unitNum <= 0) rowErrors.push('Credit Unit must be a number greater than 0.');
+        }
       }
       // Also require the student to be on the Class Roster for all imports
       if (reg && studentRosterList && studentRosterList.length) {
@@ -362,7 +380,7 @@ function validateImportRows(rawRows, yearKey, sem, activeCourse, existingRows, h
         name: String(row.name || '').trim(),
         code,
         title: String(row.title || '').trim(),
-        unit: unitRaw === '' || unitRaw === null ? '' : String(unitRaw),
+        unit: unitRaw === '' || unitRaw === null || unitRaw === undefined ? '' : String(unitRaw),
         score: hasComponentColumns ? computedScore : (scoreRaw === '' || scoreRaw === null ? '' : String(scoreRaw)),
         test_score: hasComponentColumns ? (row.test_score === '' || row.test_score === null || row.test_score === undefined ? '' : String(row.test_score)) : '',
         lab_score: hasComponentColumns ? (row.lab_score === '' || row.lab_score === null || row.lab_score === undefined ? '' : String(row.lab_score)) : '',
@@ -377,7 +395,7 @@ function validateImportRows(rawRows, yearKey, sem, activeCourse, existingRows, h
   return { valid, errors, fileErrors, total: rawRows.length };
 }
 
-function renderImportPreview(parsed, yearKey, sem, activeCourse) {
+function renderImportPreview(parsed, yearKey, sem, activeCourse, provider) {
   const overlay = document.createElement('div');
   overlay.className = 'import-overlay';
   const courseTag = activeCourse
@@ -394,6 +412,7 @@ function renderImportPreview(parsed, yearKey, sem, activeCourse) {
   overlay.innerHTML = `
     <div class="import-modal">
       <h3>Import preview — ${yearKey} · ${sem}${courseTag}</h3>
+      ${provider ? `<div class="import-provider" style="font-size:12px;color:var(--muted);margin-bottom:8px">Extracted via ${provider === 'groq' ? 'Groq' : provider === 'gemini' ? 'Gemini' : provider}${provider === 'gemini' ? ' (fallback)' : ''}</div>` : ''}
       <div class="import-summary">
         <div><span class="num">${parsed.total}</span><span class="lbl">Total rows found</span></div>
         <div><span class="num ok">${parsed.valid.length}</span><span class="lbl">Valid rows</span></div>
@@ -554,7 +573,7 @@ async function handleImageScan(input, yearKey, sem) {
     return;
   }
 
-  showLoading('Scanning results…');
+  showLoadingLong('Scanning results… (this usually takes 10–30 seconds)');
   try {
     let imageBase64, mimeType;
 
@@ -562,11 +581,20 @@ async function handleImageScan(input, yearKey, sem) {
       imageBase64 = await fileToBase64(file);
       mimeType = file.type || 'image/jpeg';
     } else {
-      // PDF: render first page to canvas image using pdfjs
-      imageBase64 = await pdfPageToBase64(file, 0);
+      // PDF: render each page to a canvas image using pdfjs, use the
+      // first page that has real (non-blank) content.
+      updateLoadingMessage('Processing PDF…');
+      const pages = await pdfFileToPages(file);
+      if (!pages.length) {
+        alert('Could not extract any readable pages from this PDF. Try using an image file instead.');
+        input.value = '';
+        return;
+      }
+      imageBase64 = pages[0];
       mimeType = 'image/jpeg';
     }
 
+    updateLoadingMessage('Extracting student records via AI…');
     const response = await apiFetch('/api/ocr/scan-result', {
       method: 'POST',
       body: JSON.stringify({ imageBase64, mimeType })
@@ -577,7 +605,7 @@ async function handleImageScan(input, yearKey, sem) {
       throw err;
     });
 
-    const { data } = response;
+    const { data, provider } = response;
     if (!data || !data.length) {
       alert('No student records were detected in this image. Try a clearer photo with the table fully in frame.');
       input.value = '';
@@ -605,37 +633,171 @@ async function handleImageScan(input, yearKey, sem) {
       ? state.courses[yearKey]?.[sem]?.find(c => c.id === state.activeCourse.courseId)
       : null;
 
-    // Detect component columns (Test/Lab/Exam present with non-zero values)
+    // Detect component columns (Test/Lab/Exam present, including zero values)
     const hasComponentColumns = mapped.some(r =>
-      (r.test_score !== '' && r.test_score !== 0 && r.test_score !== undefined) ||
-      (r.lab_score !== '' && r.lab_score !== 0 && r.lab_score !== undefined) ||
-      (r.exam_score !== '' && r.exam_score !== 0 && r.exam_score !== undefined)
+      ['test_score', 'lab_score', 'exam_score'].some(field =>
+        r[field] !== undefined && r[field] !== null && String(r[field]).trim() !== ''
+      )
     );
 
     const existingRows = activeCourse
       ? state.years[yearKey][sem].filter(r => r.course_id === activeCourse.id)
       : [];
 
-    const parsed = validateImportRows(mapped, yearKey, sem, activeCourse, existingRows, hasComponentColumns, false, studentRoster.all);
+    const parsed = validateImportRows(mapped, yearKey, sem, activeCourse, existingRows, hasComponentColumns, false, studentRoster.all, true);
     if (!parsed.valid.length) {
       alert(`No valid rows extracted. ${parsed.errors.length} row(s) have errors:\n${parsed.errors.map(e => e.errors.join('; ')).join('\n')}`);
       input.value = '';
       return;
     }
 
-    renderImportPreview(parsed, yearKey, sem, activeCourse);
+    renderImportPreview(parsed, yearKey, sem, activeCourse, provider);
   } catch (err) {
     let errMsg = err.message || 'Failed to scan image. Please try again.';
     let errDetails = err.details || '';
+    let errStatus = 0;
+    let retryAfter = 0;
 
     // apiFetch throws "API {status}: {body}" — try to parse the JSON body
-    const match = errMsg.match(/^API \d+: (.*)$/);
+    const match = errMsg.match(/^API (\d+): (.*)$/);
     if (match) {
+      errStatus = parseInt(match[1], 10);
       try {
-        const body = JSON.parse(match[1]);
+        const body = JSON.parse(match[2]);
+        errMsg = body.error || errMsg;
+        errDetails = body.details || '';
+        retryAfter = Number(body.retryAfter) || 0;
+      } catch (e) { /* not JSON, keep original */ }
+    }
+
+    const quotaMessage = `${errMsg} ${errDetails}`.toLowerCase();
+    if (errStatus === 429 || quotaMessage.includes('quota exhausted') ||
+        quotaMessage.includes('rate-limited') || quotaMessage.includes('resource_exhausted') ||
+        quotaMessage.includes('request too large')) {
+      const delay = retryAfter || 60;
+      errMsg = 'AI provider quota exhausted.';
+      errDetails = `Retry in about ${delay} seconds, or configure a provider with higher token limits.`;
+    } else if (errMsg.includes('timed out') || errDetails.includes('timed out')) {
+      errMsg = 'The AI service is taking too long.';
+      errDetails = 'Try a smaller image or a clearer photo of the result sheet.';
+    } else if (errMsg.includes('invalid JSON') || errDetails.includes('invalid JSON')) {
+      errMsg = 'The AI service returned an unreadable response.';
+      errDetails = 'This can happen with low-quality images. Try retaking the photo.';
+    } else if (errMsg.includes('no valid student records') || errDetails.includes('no valid student records')) {
+      errMsg = 'No valid student records were found in the image.';
+      errDetails = 'Ensure the result sheet table is fully visible and well-lit.';
+    } else if (errDetails.includes('fetch failed') || errDetails.includes('Cannot reach')) {
+      errMsg = 'Cannot connect to the AI service.';
+      errDetails = 'The server could not reach the AI provider. Please try again later.';
+    } else if (errStatus >= 500 && !errDetails) {
+      errMsg = 'The AI service is temporarily unavailable.';
+      errDetails = 'Please try again in a few minutes.';
+    }
+
+    alert(errDetails ? `${errMsg}\n\n${errDetails}` : errMsg);
+  } finally {
+    hideLoading();
+    input.value = '';
+  }
+}
+
+async function handleRosterImageScan(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+
+  const MAX_BYTES = 7 * 1024 * 1024;
+  if (file.size > MAX_BYTES) {
+    alert(`File is too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Please use a smaller image.`);
+    input.value = '';
+    return;
+  }
+
+  const isImage = file.type.startsWith('image/');
+  const isPdf = file.type === 'application/pdf';
+
+  if (!isImage && !isPdf) {
+    alert('Please select a JPG, PNG, or PDF file.');
+    input.value = '';
+    return;
+  }
+
+  showLoadingLong('Scanning roster… (this usually takes 10–30 seconds)');
+  try {
+    let imageBase64, mimeType;
+
+    if (isImage) {
+      imageBase64 = await fileToBase64(file);
+      mimeType = file.type || 'image/jpeg';
+    } else {
+      updateLoadingMessage('Processing PDF…');
+      const pages = await pdfFileToPages(file);
+      if (!pages.length) {
+        alert('Could not extract any readable pages from this PDF. Try using an image file instead.');
+        input.value = '';
+        return;
+      }
+      imageBase64 = pages[0];
+      mimeType = 'image/jpeg';
+    }
+
+    updateLoadingMessage('Extracting names and registration numbers…');
+    const response = await apiFetch('/api/ocr/scan-roster', {
+      method: 'POST',
+      body: JSON.stringify({ imageBase64, mimeType })
+    }).catch(err => {
+      if (err.message.includes('413')) {
+        throw new Error('Image is too large. Please use a smaller photo or a lower resolution.');
+      }
+      throw err;
+    });
+
+    const { data, count, provider } = response;
+    if (!data || !data.length) {
+      alert('No student records were detected in this image. Try a clearer photo of the roster.');
+      input.value = '';
+      return;
+    }
+
+    const rawRows = data.map(row => ({
+      'Reg No': row.reg_no,
+      'Full Name': row.full_name,
+    }));
+
+    const mapped = rawRows.map(r => mapStudentRowFields(r));
+
+    if (!studentRoster.loaded) {
+      await loadStudents();
+    }
+
+    const parsed = validateStudentImportRows(mapped);
+
+    renderStudentImportPreview(parsed, count, provider);
+  } catch (err) {
+    let errMsg = err.message || 'Failed to scan roster. Please try again.';
+    let errDetails = err.details || '';
+    let errStatus = 0;
+
+    const match = errMsg.match(/^API (\d+): (.*)$/);
+    if (match) {
+      errStatus = parseInt(match[1], 10);
+      try {
+        const body = JSON.parse(match[2]);
         errMsg = body.error || errMsg;
         errDetails = body.details || '';
       } catch (e) { /* not JSON, keep original */ }
+    }
+
+    const quotaMessage = `${errMsg} ${errDetails}`.toLowerCase();
+    if (errStatus === 429 || quotaMessage.includes('quota') ||
+        quotaMessage.includes('rate-limit') || quotaMessage.includes('resource_exhausted')) {
+      errMsg = 'AI provider quota exhausted.';
+      errDetails = 'Retry in a minute or configure a provider with higher limits.';
+    } else if (errMsg.includes('timed out') || errDetails.includes('timed out')) {
+      errMsg = 'The AI service is taking too long.';
+      errDetails = 'Try a smaller image or a clearer photo.';
+    } else if (errDetails.includes('fetch failed') || errDetails.includes('Cannot reach')) {
+      errMsg = 'Cannot connect to the AI service.';
+      errDetails = 'The server could not reach the AI provider. Please try again later.';
     }
 
     alert(errDetails ? `${errMsg}\n\n${errDetails}` : errMsg);
@@ -658,18 +820,94 @@ async function pdfPageToBase64(file, pageIndex) {
   if (typeof pdfjsLib === 'undefined') {
     throw new Error('PDF processing library not loaded. Please use an image file instead.');
   }
-  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+  if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+  }
   const arrayBuffer = await file.arrayBuffer();
   const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
   const pdf = await loadingTask.promise;
-  const page = await pdf.getPage(pageIndex + 1);
+  const pageCount = pdf.numPages;
+  const targetPage = Math.min(pageIndex + 1, pageCount);
+  const page = await pdf.getPage(targetPage);
   const viewport = page.getViewport({ scale: 2 });
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
   canvas.width = viewport.width;
   canvas.height = viewport.height;
   await page.render({ canvasContext: ctx, viewport }).promise;
-  return canvas.toDataURL('image/jpeg', 0.85);
+
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+
+  if (dataUrl.length < 200) {
+    throw new Error('PDF page rendered to a near-empty image. The PDF may be corrupted.');
+  }
+
+  const base64Data = dataUrl.split(',')[1];
+  if (!base64Data || base64Data.length < 500) {
+    throw new Error('PDF page rendered too small for OCR. Try converting the PDF to an image externally.');
+  }
+
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
+  let nonWhitePixels = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i], g = data[i + 1], b = data[i + 2];
+    if (r < 250 || g < 250 || b < 250) nonWhitePixels++;
+  }
+  const totalPixels = data.length / 4;
+  if (nonWhitePixels / totalPixels < 0.001) {
+    throw new Error('PDF page appears to be blank (no content detected). Ensure the result sheet is visible.');
+  }
+
+  return dataUrl;
+}
+
+async function pdfFileToPages(file) {
+  if (typeof pdfjsLib === 'undefined') {
+    throw new Error('PDF processing library not loaded. Please use an image file instead.');
+  }
+  if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+  }
+  const arrayBuffer = await file.arrayBuffer();
+  const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+  const pdf = await loadingTask.promise;
+  const pageCount = pdf.numPages;
+  const pages = [];
+
+  for (let i = 0; i < pageCount; i++) {
+    try {
+      const page = await pdf.getPage(i + 1);
+      const viewport = page.getViewport({ scale: 2 });
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+
+      if (dataUrl.length < 200) continue;
+
+      const base64Data = dataUrl.split(',')[1];
+      if (!base64Data || base64Data.length < 500) continue;
+
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imageData.data;
+      let nonWhitePixels = 0;
+      for (let j = 0; j < data.length; j += 4) {
+        const r = data[j], g = data[j + 1], b = data[j + 2];
+        if (r < 250 || g < 250 || b < 250) nonWhitePixels++;
+      }
+      const totalPixels = data.length / 4;
+      if (nonWhitePixels / totalPixels >= 0.001) {
+        pages.push(dataUrl);
+      }
+    } catch (err) {
+      console.warn(`PDF page ${i + 1} skipped:`, err.message);
+    }
+  }
+
+  return pages;
 }
 
 async function handleImportFile(input, yearKey, sem) {
@@ -745,6 +983,19 @@ function renderYearView(yearKey) {
     <button class="btn gold" onclick="exportYearExcel('${yearKey}')">Export ${yearKey} to Excel</button>
   </div>`;
   SEMESTERS.forEach(sem => { html += renderSemesterBlock(yearKey, sem); });
+  const semSlug0 = SEMESTERS[0].replace(/\s+/g, '-');
+  const semSlug1 = SEMESTERS[1].replace(/\s+/g, '-');
+  html += `
+    <div class="year-quick-nav" id="yearQuickNav">
+      <button class="quick-nav-btn" onclick="scrollToSemester('${yearKey}', '${SEMESTERS[0]}')" title="${SEMESTERS[0]}">
+        <span class="nav-icon" style="font-size:18px">🌬️</span>
+        <span class="nav-label">${SEMESTERS[0].replace(' Semester', '')}</span>
+      </button>
+      <button class="quick-nav-btn" onclick="scrollToSemester('${yearKey}', '${SEMESTERS[1]}')" title="${SEMESTERS[1]}">
+        <span class="nav-icon" style="font-size:18px">🌧️</span>
+        <span class="nav-label">${SEMESTERS[1].replace(' Semester', '')}</span>
+      </button>
+    </div>`;
   return html;
 }
 
@@ -2970,6 +3221,13 @@ function attachSettingsHandlers() {
     });
   }
 
+  const scanRosterBtn = document.getElementById('scanRosterBtn');
+  if (scanRosterBtn) {
+    scanRosterBtn.addEventListener('click', () => {
+      document.getElementById('scanRosterImage').click();
+    });
+  }
+
   const deleteAllBtn = document.getElementById('deleteAllStudentsBtn');
   if (deleteAllBtn) deleteAllBtn.addEventListener('click', deleteAllStudents);
 
@@ -3321,12 +3579,20 @@ function validateStudentImportRows(rawRows) {
   };
 }
 
-function renderStudentImportPreview(parsed) {
+function renderStudentImportPreview(parsed, aiCount, provider) {
   const overlay = document.createElement('div');
   overlay.className = 'import-overlay';
+  const providerHtml = provider
+    ? `<div class="import-provider" style="font-size:12px;color:var(--muted);margin-bottom:8px">Extracted via ${provider === 'groq' ? 'Groq' : 'Gemini'}${provider === 'gemini' ? ' (fallback)' : ''}</div>`
+    : '';
+  const countHtml = aiCount
+    ? `<p class="settings-note" style="font-size:14px;font-weight:600;color:var(--ink)">${aiCount} students found in image</p>`
+    : '';
   overlay.innerHTML = `
     <div class="import-modal">
       <h3>Student Import Preview</h3>
+      ${countHtml}
+      ${providerHtml}
       <p class="settings-note">Only Reg No, Full Name, and Program are read from the file. No other columns are used.</p>
       <div class="import-summary">
         <div><span class="num">${parsed.total}</span><span class="lbl">Total rows</span></div>
@@ -4133,9 +4399,11 @@ function renderSettingsView() {
          </div>
           <button class="btn gold" id="addRosterStudentBtn">+ Add Student</button>
           <button class="btn secondary" id="importRosterBtn" style="margin-bottom:12px">Import from file</button>
+          <button class="btn secondary" id="scanRosterBtn" style="margin-bottom:12px">AI Scan Roster</button>
           <button class="btn secondary" id="deleteAllStudentsBtn" style="margin-bottom:12px">Delete All Students</button>
           <input type="file" id="importRosterFile" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleStudentImportFile(this)">
-         <span id="rosterStatus" class="settings-status"></span>
+          <input type="file" id="scanRosterImage" accept="image/*;capture=environment,.pdf" style="display:none" onchange="handleRosterImageScan(this)">
+          <span id="rosterStatus" class="settings-status"></span>
        </div>
       <div class="table-scroll" id="rosterTableWrap">
         <table class="roster-table">

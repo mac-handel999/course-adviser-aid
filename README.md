@@ -209,6 +209,29 @@ app already has CORS enabled for this case.
 | DELETE   | `/api/students/:id`          | Delete a student (if no linked results) |
 | POST     | `/api/portal/:slug/lookup`   | Public result lookup (no auth)       |
 
+### AI Scan Results (OCR)
+
+The **AI Scan Results** button (camera icon) lets you photograph a printed
+result sheet and extract student records automatically. The server uses
+Groq's Qwen vision model as the primary provider, with Google Gemini as a
+fallback if Groq is unavailable or times out.
+
+Required environment variables:
+
+| Variable          | Provider | Required |
+| ----------------- | -------- | -------- |
+| `GROQ_API_KEY`    | Groq     | Yes (primary) |
+| `GROQ_MODEL`      | Groq     | No (default: `qwen/qwen3.8-27b`) |
+| `GROQ_MAX_TOKENS` | Groq     | No (default: `512`; keep at or below your OTPM limit) |
+| `GEMINI_API_KEY`  | Google   | Recommended (fallback) |
+| `GEMINI_MODEL`    | Google   | No (default: `gemini-2.5-flash`) |
+
+Set these in your `.env` file for local dev and in your Vercel environment
+variables for production. Both model IDs are configurable because the
+exact set of accessible models varies by account — override as needed.
+List available Groq models with `curl -s https://api.groq.com/openai/v1/models -H "Authorization: Bearer $GROQ_API_KEY"`.
+The API keys are used server-side only — they are never sent to the browser.
+
 ## Migrations
 
 Two migration phases run as standalone scripts using the Supabase service

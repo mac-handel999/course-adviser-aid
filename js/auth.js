@@ -6,7 +6,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const submitBtn = document.getElementById('authSubmit');
   const fullNameLabel = document.getElementById('fullNameLabel');
   const fullNameInput = document.getElementById('fullName');
+  const authLoadingGate = document.getElementById('authLoadingGate');
+  const authLoadingMessage = authLoadingGate?.querySelector('.loading-message');
   let mode = 'signin';
+  let authTimeout;
 
   function updateMode() {
     if (mode === 'signin') {
@@ -24,6 +27,23 @@ document.addEventListener('DOMContentLoaded', () => {
       if (fullNameLabel) fullNameLabel.style.display = 'block';
       if (fullNameInput) fullNameInput.style.display = 'block';
     }
+  }
+
+  function showAuthLoading(message) {
+    if (!authLoadingGate) return;
+    if (authLoadingMessage) authLoadingMessage.textContent = message;
+    authLoadingGate.style.display = 'flex';
+    if (form) form.style.visibility = 'hidden';
+  }
+
+  function hideAuthLoading() {
+    if (authTimeout) {
+      clearTimeout(authTimeout);
+      authTimeout = null;
+    }
+    if (!authLoadingGate) return;
+    authLoadingGate.style.display = 'none';
+    if (form) form.style.visibility = 'visible';
   }
 
   modeToggle.addEventListener('click', (e) => {
@@ -52,7 +72,14 @@ document.addEventListener('DOMContentLoaded', () => {
     submitBtn.disabled = true;
     submitBtn.textContent = mode === 'signin' ? 'Signing in…' : 'Creating account…';
 
-    showLoading(mode === 'signin' ? 'Signing in…' : 'Creating account…');
+    showAuthLoading(mode === 'signin' ? 'Signing in…' : 'Creating account…');
+
+    authTimeout = setTimeout(() => {
+      if (authLoadingMessage) {
+        authLoadingMessage.textContent = mode === 'signin' ? 'Still signing in…' : 'Still creating account…';
+      }
+    }, 20000);
+
     let data, error;
     try {
       if (mode === 'signin') {
@@ -65,7 +92,7 @@ document.addEventListener('DOMContentLoaded', () => {
         error = result.error;
       }
     } finally {
-      hideLoading();
+      hideAuthLoading();
     }
 
     submitBtn.disabled = false;
