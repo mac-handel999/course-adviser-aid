@@ -98,7 +98,7 @@ function ensureScrollToTopBtn() {
   btn.id = 'scrollToTopBtn';
   btn.className = 'scroll-to-top';
   btn.setAttribute('aria-label', 'Scroll to top');
-  btn.innerHTML = '&#86;&#8679;';
+   btn.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 4l-8 8h5v8h6v-8h5z"/></svg>';
   document.body.appendChild(btn);
   btn.addEventListener('click', () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });

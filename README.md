@@ -222,9 +222,13 @@ Required environment variables:
 | ----------------- | -------- | -------- |
 | `GROQ_API_KEY`    | Groq     | Yes (primary) |
 | `GROQ_MODEL`      | Groq     | No (default: `qwen/qwen3.8-27b`) |
-| `GROQ_MAX_TOKENS` | Groq     | No (default: `512`; keep at or below your OTPM limit) |
+| `GROQ_MAX_TOKENS` | Groq     | No (default: `800`; keep at or below your OTPM limit) |
 | `GEMINI_API_KEY`  | Google   | Recommended (fallback) |
-| `GEMINI_MODEL`    | Google   | No (default: `gemini-2.5-flash`) |
+| `GEMINI_MODEL`    | Google   | No (default: `gemini-3.6-flash`) |
+
+**Provider priority**: Groq (`qwen/qwen3.8-27b`) is used first; Gemini (`gemini-3.6-flash`)
+is the automatic fallback when Groq is unavailable or rate-limited. To use Gemini as the
+primary provider, simply omit `GROQ_API_KEY` from your environment.
 
 Set these in your `.env` file for local dev and in your Vercel environment
 variables for production. Both model IDs are configurable because the

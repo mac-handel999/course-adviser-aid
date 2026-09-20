@@ -395,7 +395,7 @@ function validateImportRows(rawRows, yearKey, sem, activeCourse, existingRows, h
   return { valid, errors, fileErrors, total: rawRows.length };
 }
 
-function renderImportPreview(parsed, yearKey, sem, activeCourse, provider) {
+function renderImportPreview(parsed, yearKey, sem, activeCourse, provider, chunkFailures) {
   const overlay = document.createElement('div');
   overlay.className = 'import-overlay';
   const courseTag = activeCourse
@@ -423,6 +423,15 @@ function renderImportPreview(parsed, yearKey, sem, activeCourse, provider) {
           <strong>File-level errors</strong>
           <ul>
             ${parsed.fileErrors.map(e => `<li>${e}</li>`).join('')}
+          </ul>
+        </div>
+      ` : ''}
+      ${chunkFailures && chunkFailures.length ? `
+        <div class="import-warnings">
+          <strong>Scan issues — ${chunkFailures.length} page(s) could not be fully processed</strong>
+          <p class="settings-note">These pages could not be extracted by the AI. Add these students manually or re-scan the page.</p>
+          <ul>
+            ${chunkFailures.map(f => `<li><b>${f.label}</b>: ${f.error}${f.details ? ' — ' + f.details : ''}</li>`).join('')}
           </ul>
         </div>
       ` : ''}
@@ -485,6 +494,9 @@ async function commitImport(rows, yearKey, sem) {
   let updated = 0;
   let inserted = 0;
   let skipped = 0;
+  let failed = 0;
+  const failedRows = [];
+  const pendingIndices = [];
 
   // Ensure student roster is loaded
   if (!studentRoster.loaded) {
@@ -534,23 +546,57 @@ async function commitImport(rows, yearKey, sem) {
     );
     if (existingIndex >= 0) {
       state.years[yearKey][sem][existingIndex] = newRow;
-      scheduleSave(yearKey, sem, existingIndex);
+      pendingIndices.push({ yearKey, sem, idx: existingIndex, status: 'updated' });
       updated++;
     } else {
       state.years[yearKey][sem].push(newRow);
       const idx = state.years[yearKey][sem].length - 1;
-      scheduleSave(yearKey, sem, idx);
+      pendingIndices.push({ yearKey, sem, idx, status: 'inserted' });
       inserted++;
     }
   }
   saveToLocalStorage();
   render();
+
+  // Save all rows to the server, awaiting each so we can detect failures
+  if (pendingIndices.length > 0) {
+    showLoading(`Saving ${pendingIndices.length} records…`);
+    try {
+      const results = await Promise.allSettled(
+        pendingIndices.map(pi => saveRowRemote(pi.yearKey, pi.sem, pi.idx))
+      );
+      results.forEach((result, i) => {
+        if (result.status === 'fulfilled') {
+          if (!result.value.saved) {
+            failed++;
+            const row = state.years[pendingIndices[i].yearKey]?.[pendingIndices[i].sem]?.[pendingIndices[i].idx];
+            failedRows.push(row ? `Row ${pendingIndices[i].idx}: ${(row.regNo || '?')} — ${result.value.reason}` : `Row ${pendingIndices[i].idx}: ${result.value.reason}`);
+          }
+        } else {
+          failed++;
+          failedRows.push(`Row ${pendingIndices[i].idx}: ${result.reason?.message || 'Unknown error'}`);
+        }
+      });
+    } finally {
+      hideLoading();
+    }
+  }
+
+  // Re-fetch from server as source of truth, then render
+  await loadFromApi();
+  await loadCourses();
+  render();
+
   const parts = [];
   if (inserted) parts.push(`${inserted} inserted`);
   if (updated) parts.push(`${updated} updated`);
   if (skipped) parts.push(`${skipped} skipped (not on roster)`);
+  if (failed) parts.push(`${failed} failed`);
   alert(`${parts.join(', ')}.`);
+  if (failedRows.length) {
+    console.error('Failed to save rows:', failedRows);
   }
+}
 
 async function handleImageScan(input, yearKey, sem) {
   const file = input.files && input.files[0];
@@ -573,47 +619,116 @@ async function handleImageScan(input, yearKey, sem) {
     return;
   }
 
+  const CHUNK_DELAY_MS = 400;
+
   showLoadingLong('Scanning results… (this usually takes 10–30 seconds)');
   try {
-    let imageBase64, mimeType;
+    let pages;
 
     if (isImage) {
-      imageBase64 = await fileToBase64(file);
-      mimeType = file.type || 'image/jpeg';
+      updateLoadingMessage('Preparing image…');
+      const dataUrl = await fileToBase64(file);
+      pages = [{ dataUrl, mimeType: file.type || 'image/jpeg' }];
     } else {
-      // PDF: render each page to a canvas image using pdfjs, use the
-      // first page that has real (non-blank) content.
-      updateLoadingMessage('Processing PDF…');
-      const pages = await pdfFileToPages(file);
-      if (!pages.length) {
+      // PDF: render ALL pages to canvas images for chunked processing
+      updateLoadingMessage('Processing PDF pages…');
+      const renderedPages = await pdfFileToPagesAll(file);
+      if (!renderedPages.length) {
         alert('Could not extract any readable pages from this PDF. Try using an image file instead.');
         input.value = '';
         return;
       }
-      imageBase64 = pages[0];
-      mimeType = 'image/jpeg';
+      pages = renderedPages.map(p => ({ dataUrl: p, mimeType: 'image/jpeg' }));
     }
 
-    updateLoadingMessage('Extracting student records via AI…');
-    const response = await apiFetch('/api/ocr/scan-result', {
-      method: 'POST',
-      body: JSON.stringify({ imageBase64, mimeType })
-    }).catch(err => {
-      if (err.message && err.message.includes('413')) {
-        throw new Error('Image is too large. Please use a smaller photo or a lower resolution.');
-      }
-      throw err;
-    });
+    // Process each page as a separate chunk
+    const allRows = [];
+    const chunkFailures = [];
+    const providers = [];
 
-    const { data, provider } = response;
-    if (!data || !data.length) {
-      alert('No student records were detected in this image. Try a clearer photo with the table fully in frame.');
+    for (let i = 0; i < pages.length; i++) {
+      const page = pages[i];
+      const pageLabel = isPdf ? `page ${i + 1} of ${pages.length}` : `image`;
+      updateLoadingMessage(`Scanning ${pageLabel}…`);
+
+      let pageData = null;
+      let pageProvider = null;
+      let attempts = 0;
+      const MAX_ATTEMPTS = 2;
+
+      while (attempts < MAX_ATTEMPTS && !pageData) {
+        attempts++;
+        try {
+          const response = await apiFetch('/api/ocr/scan-result', {
+            method: 'POST',
+            body: JSON.stringify({ imageBase64: page.dataUrl, mimeType: page.mimeType })
+          });
+          pageData = response.data;
+          pageProvider = response.provider;
+        } catch (err) {
+          let errMsg = err.message || 'Failed to scan image. Please try again.';
+          let errDetails = err.details || '';
+          let errStatus = 0;
+
+          const match = errMsg.match(/^API (\d+): (.*)$/);
+          if (match) {
+            errStatus = parseInt(match[1], 10);
+            try {
+              const body = JSON.parse(match[2]);
+              errMsg = body.error || errMsg;
+              errDetails = body.details || '';
+            } catch (e) { /* not JSON */ }
+          }
+
+          const quotaMessage = `${errMsg} ${errDetails}`.toLowerCase();
+          const isRetryable = errStatus === 429 ||
+            quotaMessage.includes('quota') ||
+            quotaMessage.includes('rate-limit') ||
+            quotaMessage.includes('resource_exhausted') ||
+            quotaMessage.includes('request too large') ||
+            errDetails.includes('fetch failed') ||
+            errDetails.includes('Cannot reach') ||
+            errMsg.includes('timed out') || errDetails.includes('timed out');
+
+          if (isRetryable && attempts < MAX_ATTEMPTS) {
+            updateLoadingMessage(`Retrying ${pageLabel} (attempt ${attempts + 1}/${MAX_ATTEMPTS})…`);
+            await new Promise(r => setTimeout(r, CHUNK_DELAY_MS * 2));
+            continue;
+          }
+
+          // This page failed — record it for the preview
+          chunkFailures.push({
+            page: i + 1,
+            label: pageLabel,
+            error: errMsg,
+            details: errDetails
+          });
+          pageData = [];
+          break;
+        }
+      }
+
+      if (pageData && pageData.length) {
+        allRows.push(...pageData);
+        if (pageProvider && !providers.includes(pageProvider)) providers.push(pageProvider);
+      }
+
+      // Brief delay between chunks to reduce OTPM pressure
+      if (i < pages.length - 1 && allRows.length < 500) {
+        await new Promise(r => setTimeout(r, CHUNK_DELAY_MS));
+      }
+    }
+
+    const { data: merged, provider } = mergeAndDedupeResults(allRows, providers);
+
+    if (!merged.length && chunkFailures.length === 0) {
+      alert('No student records were detected in the image. Try a clearer photo with the table fully in frame.');
       input.value = '';
       return;
     }
 
     // Convert AI output to raw rows that mapRowFields can process
-    const rawRows = data.map(row => ({
+    const rawRows = merged.map(row => ({
       'Reg No': row.reg_no,
       Test: row.test,
       Lab: row.lab,
@@ -644,14 +759,20 @@ async function handleImageScan(input, yearKey, sem) {
       ? state.years[yearKey][sem].filter(r => r.course_id === activeCourse.id)
       : [];
 
+    // Apply validation to the MERGED result set, not per-chunk
     const parsed = validateImportRows(mapped, yearKey, sem, activeCourse, existingRows, hasComponentColumns, false, studentRoster.all, true);
-    if (!parsed.valid.length) {
-      alert(`No valid rows extracted. ${parsed.errors.length} row(s) have errors:\n${parsed.errors.map(e => e.errors.join('; ')).join('\n')}`);
+    if (!parsed.valid.length && (parsed.errors.length || parsed.fileErrors.length)) {
+      let msg = `No valid rows extracted. ${parsed.errors.length} row(s) have errors:\n${parsed.errors.map(e => e.errors.join('; ')).join('\n')}`;
+      if (chunkFailures.length) {
+        msg += `\n\nNote: ${chunkFailures.length} page(s) could not be processed:\n${chunkFailures.map(f => `  ${f.label}: ${f.error}`).join('\n')}`;
+      }
+      alert(msg);
       input.value = '';
       return;
     }
 
-    renderImportPreview(parsed, yearKey, sem, activeCourse, provider);
+    // Surface chunk failures in the preview
+    renderImportPreview(parsed, yearKey, sem, activeCourse, provider, chunkFailures);
   } catch (err) {
     let errMsg = err.message || 'Failed to scan image. Please try again.';
     let errDetails = err.details || '';
@@ -701,6 +822,53 @@ async function handleImageScan(input, yearKey, sem) {
   }
 }
 
+function mergeAndDedupeResults(rows, providers) {
+  const seen = new Set();
+  const merged = [];
+  const failed = [];
+  (rows || []).forEach(row => {
+    if (!row || typeof row !== 'object') {
+      failed.push(row);
+      return;
+    }
+    const reg = String(row.reg_no || '').trim();
+    let key = reg || `_${merged.length}`;
+    // Dedupe by reg_no, keeping the first occurrence
+    if (reg && seen.has(reg)) return;
+    if (reg) seen.add(reg);
+    merged.push({
+      reg_no: reg,
+      test: row.test !== undefined ? Number(row.test) || 0 : 0,
+      lab: row.lab !== undefined ? Number(row.lab) || 0 : 0,
+      exam: row.exam !== undefined ? Number(row.exam) || 0 : 0,
+      remark: row.remark || ''
+    });
+  });
+  const provider = providers.length ? providers[0] : null;
+  return { data: merged, provider, failed };
+}
+
+function mergeAndDedupeRoster(rows, providers) {
+  const seen = new Set();
+  const merged = [];
+  const failed = [];
+  (rows || []).forEach(row => {
+    if (!row || typeof row !== 'object') {
+      failed.push(row);
+      return;
+    }
+    const reg = String(row.reg_no || '').trim();
+    if (reg && seen.has(reg)) return;
+    if (reg) seen.add(reg);
+    merged.push({
+      reg_no: reg,
+      full_name: String(row.full_name || '').trim()
+    });
+  });
+  const provider = providers.length ? providers[0] : null;
+  return { data: merged, provider, failed };
+}
+
 async function handleRosterImageScan(input) {
   const file = input.files && input.files[0];
   if (!file) return;
@@ -723,42 +891,110 @@ async function handleRosterImageScan(input) {
 
   showLoadingLong('Scanning roster… (this usually takes 10–30 seconds)');
   try {
-    let imageBase64, mimeType;
+    let pages;
 
     if (isImage) {
-      imageBase64 = await fileToBase64(file);
-      mimeType = file.type || 'image/jpeg';
+      const dataUrl = await fileToBase64(file);
+      pages = [{ dataUrl, mimeType: file.type || 'image/jpeg' }];
     } else {
-      updateLoadingMessage('Processing PDF…');
-      const pages = await pdfFileToPages(file);
-      if (!pages.length) {
+      updateLoadingMessage('Processing PDF pages…');
+      const renderedPages = await pdfFileToPagesAll(file);
+      if (!renderedPages.length || renderedPages.every(p => p === null)) {
         alert('Could not extract any readable pages from this PDF. Try using an image file instead.');
         input.value = '';
         return;
       }
-      imageBase64 = pages[0];
-      mimeType = 'image/jpeg';
+      pages = renderedPages.map((p, i) => p ? { dataUrl: p, mimeType: 'image/jpeg' } : null);
     }
 
-    updateLoadingMessage('Extracting names and registration numbers…');
-    const response = await apiFetch('/api/ocr/scan-roster', {
-      method: 'POST',
-      body: JSON.stringify({ imageBase64, mimeType })
-    }).catch(err => {
-      if (err.message.includes('413')) {
-        throw new Error('Image is too large. Please use a smaller photo or a lower resolution.');
-      }
-      throw err;
-    });
+    const CHUNK_DELAY_MS = 400;
+    const allRows = [];
+    const providers = [];
+    const chunkFailures = [];
 
-    const { data, count, provider } = response;
-    if (!data || !data.length) {
-      alert('No student records were detected in this image. Try a clearer photo of the roster.');
+    for (let i = 0; i < pages.length; i++) {
+      if (!pages[i]) {
+        chunkFailures.push({ page: i + 1, label: `page ${i + 1} of ${pages.length}`, error: 'Blank page skipped' });
+        continue;
+      }
+
+      const page = pages[i];
+      const pageLabel = isPdf ? `page ${i + 1} of ${pages.length}` : 'image';
+      updateLoadingMessage(`Scanning ${pageLabel}…`);
+
+      let pageData = null;
+      let pageProvider = null;
+      let attempts = 0;
+      const MAX_ATTEMPTS = 2;
+
+      while (attempts < MAX_ATTEMPTS && !pageData) {
+        attempts++;
+        try {
+          const response = await apiFetch('/api/ocr/scan-roster', {
+            method: 'POST',
+            body: JSON.stringify({ imageBase64: page.dataUrl, mimeType: page.mimeType })
+          });
+          pageData = response.data;
+          pageProvider = response.provider;
+        } catch (err) {
+          let errMsg = err.message || '';
+          let errDetails = err.details || '';
+          let errStatus = 0;
+
+          const match = errMsg.match(/^API (\d+): (.*)$/);
+          if (match) {
+            errStatus = parseInt(match[1], 10);
+            try {
+              const body = JSON.parse(match[2]);
+              errMsg = body.error || errMsg;
+              errDetails = body.details || '';
+            } catch (e) { }
+          }
+
+          const quotaMessage = `${errMsg} ${errDetails}`.toLowerCase();
+          const isRetryable = errStatus === 429 ||
+            quotaMessage.includes('quota') ||
+            quotaMessage.includes('rate-limit') ||
+            quotaMessage.includes('resource_exhausted') ||
+            errDetails.includes('fetch failed') ||
+            errDetails.includes('Cannot reach') ||
+            errMsg.includes('timed out') || errDetails.includes('timed out');
+
+          if (isRetryable && attempts < MAX_ATTEMPTS) {
+            updateLoadingMessage(`Retrying ${pageLabel} (attempt ${attempts + 1}/${MAX_ATTEMPTS})…`);
+            await new Promise(r => setTimeout(r, CHUNK_DELAY_MS * 2));
+            continue;
+          }
+
+          chunkFailures.push({
+            page: i + 1,
+            label: pageLabel,
+            error: errMsg,
+            details: errDetails
+          });
+          pageData = [];
+          break;
+        }
+      }
+
+      if (pageData && pageData.length) {
+        allRows.push(...pageData);
+        if (pageProvider && !providers.includes(pageProvider)) providers.push(pageProvider);
+      }
+
+      if (i < pages.length - 1 && allRows.length < 500) {
+        await new Promise(r => setTimeout(r, CHUNK_DELAY_MS));
+      }
+    }
+
+    const { data: merged, provider } = mergeAndDedupeRoster(allRows, providers);
+    if (!merged.length && chunkFailures.length === 0) {
+      alert('No student records were detected in the image. Try a clearer photo of the roster.');
       input.value = '';
       return;
     }
 
-    const rawRows = data.map(row => ({
+    const rawRows = merged.map(row => ({
       'Reg No': row.reg_no,
       'Full Name': row.full_name,
     }));
@@ -770,8 +1006,7 @@ async function handleRosterImageScan(input) {
     }
 
     const parsed = validateStudentImportRows(mapped);
-
-    renderStudentImportPreview(parsed, count, provider);
+    renderStudentImportPreview(parsed, merged.length, provider, chunkFailures);
   } catch (err) {
     let errMsg = err.message || 'Failed to scan roster. Please try again.';
     let errDetails = err.details || '';
@@ -910,6 +1145,63 @@ async function pdfFileToPages(file) {
   return pages;
 }
 
+async function pdfFileToPagesAll(file) {
+  if (typeof pdfjsLib === 'undefined') {
+    throw new Error('PDF processing library not loaded. Please use an image file instead.');
+  }
+  if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+  }
+  const arrayBuffer = await file.arrayBuffer();
+  const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+  const pdf = await loadingTask.promise;
+  const pageCount = pdf.numPages;
+  const pages = [];
+
+  for (let i = 0; i < pageCount; i++) {
+    try {
+      const page = await pdf.getPage(i + 1);
+      const viewport = page.getViewport({ scale: 2 });
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+
+      if (dataUrl.length < 200) {
+        pages.push(null);
+        continue;
+      }
+
+      const base64Data = dataUrl.split(',')[1];
+      if (!base64Data || base64Data.length < 500) {
+        pages.push(null);
+        continue;
+      }
+
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imageData.data;
+      let nonWhitePixels = 0;
+      for (let j = 0; j < data.length; j += 4) {
+        const r = data[j], g = data[j + 1], b = data[j + 2];
+        if (r < 250 || g < 250 || b < 250) nonWhitePixels++;
+      }
+      const totalPixels = data.length / 4;
+      if (nonWhitePixels / totalPixels >= 0.001) {
+        pages.push(dataUrl);
+      } else {
+        pages.push(null);
+      }
+    } catch (err) {
+      console.warn(`PDF page ${i + 1} skipped:`, err.message);
+      pages.push(null);
+    }
+  }
+
+  return pages;
+}
+
 async function handleImportFile(input, yearKey, sem) {
   const file = input.files && input.files[0];
   if (!file) return;
@@ -985,14 +1277,18 @@ function renderYearView(yearKey) {
   SEMESTERS.forEach(sem => { html += renderSemesterBlock(yearKey, sem); });
   const semSlug0 = SEMESTERS[0].replace(/\s+/g, '-');
   const semSlug1 = SEMESTERS[1].replace(/\s+/g, '-');
-  html += `
+   html += `
     <div class="year-quick-nav" id="yearQuickNav">
-      <button class="quick-nav-btn" onclick="scrollToSemester('${yearKey}', '${SEMESTERS[0]}')" title="${SEMESTERS[0]}">
-        <span class="nav-icon" style="font-size:18px">🌬️</span>
+      <button class="quick-nav-btn harmattan" onclick="scrollToSemester('${yearKey}', '${SEMESTERS[0]}')" title="${SEMESTERS[0]}">
+        <span class="nav-icon">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M11 4h2v8h-2z"/><path d="M9.05 10.55L12 13.5l2.95-2.95-1.41-1.41L12 10.7l-1.54-1.54z"/></svg>
+        </span>
         <span class="nav-label">${SEMESTERS[0].replace(' Semester', '')}</span>
       </button>
-      <button class="quick-nav-btn" onclick="scrollToSemester('${yearKey}', '${SEMESTERS[1]}')" title="${SEMESTERS[1]}">
-        <span class="nav-icon" style="font-size:18px">🌧️</span>
+      <button class="quick-nav-btn rain" onclick="scrollToSemester('${yearKey}', '${SEMESTERS[1]}')" title="${SEMESTERS[1]}">
+        <span class="nav-icon">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 2C7.58 2 4 5.58 4 10c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8zm0 14.5c-3.31 0-6-2.69-6-6s2.69-6 6-6 6 2.69 6 6-2.69 6-6 6z"/><path d="M12 6v5l3 1.5-.5.5-2.5-1.5z"/></svg>
+        </span>
         <span class="nav-label">${SEMESTERS[1].replace(' Semester', '')}</span>
       </button>
     </div>`;
@@ -2321,31 +2617,31 @@ async function replayOfflineQueue() {
 }
 
 async function saveRowRemote(yearKey, sem, idx) {
-   if (!currentUser || !accessToken) return;
-   const row = state.years[yearKey][sem][idx];
-   if (!row) return;
-       if (!row.regNo && !row.name && !row.code && !row.title && !row.unit && !row.score && !row.test_score && !row.lab_score && !row.exam_score && !row.studentId) return;
+  if (!currentUser || !accessToken) return { saved: false, reason: 'not-authenticated' };
+  const row = state.years[yearKey][sem][idx];
+  if (!row) return { saved: false, reason: 'row-missing' };
+  if (!row.regNo && !row.name && !row.code && !row.title && !row.unit && !row.score && !row.test_score && !row.lab_score && !row.exam_score && !row.studentId) return { saved: false, reason: 'empty-row' };
 
   // Skip saving while the reg_no is still being typed (partial entry).
   // The server enforces 11-digit format; sending a partial value only
   // produces an avoidable 400 round-trip.  Once the user finishes typing,
   // the next debounced save will carry the complete 11-digit value.
   const regNoTrimmed = (row.regNo || '').trim();
-  if (regNoTrimmed && regNoTrimmed.length !== 11) return;
+  if (regNoTrimmed && regNoTrimmed.length !== 11) return { saved: false, reason: 'partial-reg-no' };
 
-   // Client-side duplicate check: scoped to the currently-open course only.
-   // Compare by object identity (r !== row) so the row being saved is never
-   // compared against itself.  Using index-based exclusion (i !== idx) would
-   // be wrong here because `i` is the position inside the *filtered* array,
-   // while `idx` is the position in the full semester array — they only
-   // coincide by accident when every row belongs to the same course.
-   if (state.activeCourse && state.activeCourse.yearKey === yearKey && state.activeCourse.sem === sem && row.course_id) {
-     const courseRows = state.years[yearKey][sem].filter(r => r.course_id === row.course_id);
-     const isDuplicate = courseRows.some(r => r !== row && (r.regNo || '').trim() === (row.regNo || '').trim() && (r.regNo || '').trim() !== '');
-     const warnEl = document.getElementById(`regNoWarn-${yearKey}-${sem}-${idx}`);
+  // Client-side duplicate check: scoped to the currently-open course only.
+  // Compare by object identity (r !== row) so the row being saved is never
+  // compared against itself.  Using index-based exclusion (i !== idx) would
+  // be wrong here because `i` is the position inside the *filtered* array,
+  // while `idx` is the position in the full semester array — they only
+  // coincide by accident when every row belongs to the same course.
+  if (state.activeCourse && state.activeCourse.yearKey === yearKey && state.activeCourse.sem === sem && row.course_id) {
+    const courseRows = state.years[yearKey][sem].filter(r => r.course_id === row.course_id);
+    const isDuplicate = courseRows.some(r => r !== row && (r.regNo || '').trim() === (row.regNo || '').trim() && (r.regNo || '').trim() !== '');
+    const warnEl = document.getElementById(`regNoWarn-${yearKey}-${sem}-${idx}`);
     if (isDuplicate) {
       if (warnEl) { warnEl.textContent = `Duplicate: reg no ${(row.regNo || '').trim()} already exists in this course.`; warnEl.style.color = 'var(--red)'; }
-      return;
+      return { saved: false, reason: 'duplicate' };
     }
     if (warnEl) { warnEl.textContent = ''; }
   }
@@ -2383,8 +2679,10 @@ async function saveRowRemote(yearKey, sem, idx) {
       });
       row.id = data.id;
     }
+    return { saved: true, row };
   } catch (err) {
     console.error('Save failed:', err.message);
+    return { saved: false, reason: err.message, row };
   }
 }
 
@@ -2401,7 +2699,11 @@ async function loadFromApi() {
   if (!currentUser || !accessToken) return;
   try {
     const data = await apiFetch('/api/results');
-    YEAR_KEYS.forEach(y => { state.years[y] = {}; state.courses[y] = {}; SEMESTERS.forEach(s => { state.years[y][s] = []; state.courses[y][s] = []; }); });
+
+    YEAR_KEYS.forEach(y => {
+      state.years[y] = {};
+      SEMESTERS.forEach(s => { state.years[y][s] = []; });
+    });
 
     (data || []).forEach(row => {
       if (!state.years[row.year] || !state.years[row.year][row.semester]) return;
@@ -2523,7 +2825,15 @@ function teardownRealtimeSubscriptions() {
   realtimeChannels = [];
 }
 
+let realtimeDebounceTimer = null;
 function handleRealtimeChange(table, payload) {
+  if (realtimeDebounceTimer) clearTimeout(realtimeDebounceTimer);
+  realtimeDebounceTimer = setTimeout(() => {
+    doHandleRealtimeChange(table, payload);
+  }, 800);
+}
+
+async function doHandleRealtimeChange(table, payload) {
   const current = state.currentView;
 
   switch (table) {
@@ -2540,14 +2850,17 @@ function handleRealtimeChange(table, payload) {
         loadDashboardData();
       }
       if (YEAR_KEYS.includes(current)) {
-        loadFromApi();
+        await loadFromApi();
+        await loadCourses();
+        render();
       }
       break;
     case 'courses':
       if (current === 'Dashboard') {
         loadDashboardData();
       }
-      loadCourses();
+      await loadCourses();
+      render();
       break;
     case 'adviser_settings':
       loadSettings();
@@ -3579,7 +3892,7 @@ function validateStudentImportRows(rawRows) {
   };
 }
 
-function renderStudentImportPreview(parsed, aiCount, provider) {
+function renderStudentImportPreview(parsed, aiCount, provider, chunkFailures) {
   const overlay = document.createElement('div');
   overlay.className = 'import-overlay';
   const providerHtml = provider
@@ -3625,6 +3938,15 @@ function renderStudentImportPreview(parsed, aiCount, provider) {
               `).join('')}
             </tbody>
           </table>
+        </div>
+      ` : ''}
+      ${chunkFailures && chunkFailures.length ? `
+        <div class="import-warnings" style="margin-top:12px">
+          <strong>Scan issues — ${chunkFailures.length} page(s) could not be fully processed</strong>
+          <p class="settings-note">Those pages could not be extracted by the AI. Add these students manually or re-scan the page.</p>
+          <ul>
+            ${chunkFailures.map(f => `<li><b>${f.label}</b>: ${f.error}${f.details ? ' — ' + f.details : ''}</li>`).join('')}
+          </ul>
         </div>
       ` : ''}
 

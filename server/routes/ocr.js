@@ -96,9 +96,9 @@ Return exactly this JSON shape (no extra keys):
 `;
 
 const GROQ_TIMEOUT_MS = 30000;
-const GROQ_MAX_TOKENS = 512;
-const GROQ_MAX_TOKENS_RETRY = 256;
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const GROQ_MAX_TOKENS = 800;
+const GROQ_MAX_TOKENS_RETRY = 400;
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
 const GROQ_MODEL = process.env.GROQ_MODEL || 'qwen/qwen3.8-27b';
 
 const geminiAI = new GoogleGenAI({
