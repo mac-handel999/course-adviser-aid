@@ -558,27 +558,44 @@ async function commitImport(rows, yearKey, sem) {
   saveToLocalStorage();
   render();
 
-  // Save all rows to the server, awaiting each so we can detect failures
+  // Save all rows to the server sequentially. Parallel saves via
+  // Promise.allSettled caused rows to be dropped because:
+  //  1. saveRowRemote's client-side duplicate check scans the live in-memory
+  //     array, which contains every row from this import — parallel calls
+  //     see each other and false-positive as duplicates.
+  //  2. The server's check-then-insert pattern (SELECT then INSERT) races
+  //     under concurrent requests, producing 409 conflicts even for genuinely
+  //     unique (course_id, reg_no) pairs.
+  //  3. The realtime subscription fires loadFromApi() mid-batch, clearing
+  //     state arrays and invalidating indices that still-pending saves rely on.
+  // Sequential saves eliminate all three failure modes.
+  let realtimeWasTornDown = false;
   if (pendingIndices.length > 0) {
     showLoading(`Saving ${pendingIndices.length} records…`);
+    // Temporarily tear down realtime subscriptions so that INSERT events
+    // don't trigger loadFromApi() while we're still saving.
+    if (realtimeChannels.length > 0) {
+      teardownRealtimeSubscriptions();
+      realtimeWasTornDown = true;
+    }
     try {
-      const results = await Promise.allSettled(
-        pendingIndices.map(pi => saveRowRemote(pi.yearKey, pi.sem, pi.idx))
-      );
-      results.forEach((result, i) => {
-        if (result.status === 'fulfilled') {
-          if (!result.value.saved) {
-            failed++;
-            const row = state.years[pendingIndices[i].yearKey]?.[pendingIndices[i].sem]?.[pendingIndices[i].idx];
-            failedRows.push(row ? `Row ${pendingIndices[i].idx}: ${(row.regNo || '?')} — ${result.value.reason}` : `Row ${pendingIndices[i].idx}: ${result.value.reason}`);
-          }
-        } else {
+      for (const pi of pendingIndices) {
+        const result = await saveRowRemote(pi.yearKey, pi.sem, pi.idx);
+        if (!result.saved) {
           failed++;
-          failedRows.push(`Row ${pendingIndices[i].idx}: ${result.reason?.message || 'Unknown error'}`);
+          const row = state.years[pi.yearKey]?.[pi.sem]?.[pi.idx];
+          failedRows.push(
+            row
+              ? `Row ${pi.idx}: ${(row.regNo || '?')} — ${result.reason}`
+              : `Row ${pi.idx}: ${result.reason}`
+          );
         }
-      });
+      }
     } finally {
       hideLoading();
+      if (realtimeWasTornDown) {
+        setupRealtimeSubscriptions();
+      }
     }
   }
 
@@ -2630,12 +2647,12 @@ async function saveRowRemote(yearKey, sem, idx) {
   if (regNoTrimmed && regNoTrimmed.length !== 11) return { saved: false, reason: 'partial-reg-no' };
 
   // Client-side duplicate check: scoped to the currently-open course only.
-  // Compare by object identity (r !== row) so the row being saved is never
-  // compared against itself.  Using index-based exclusion (i !== idx) would
-  // be wrong here because `i` is the position inside the *filtered* array,
-  // while `idx` is the position in the full semester array — they only
-  // coincide by accident when every row belongs to the same course.
-  if (state.activeCourse && state.activeCourse.yearKey === yearKey && state.activeCourse.sem === sem && row.course_id) {
+  // Only run for existing rows (id !== null) — new rows from bulk import
+  // have id: null. Checking them here scans the live state array which
+  // contains every other un-saved import row, causing false-positive
+  // duplicates. Imported rows are already deduped by validateImportRows,
+  // and the server enforces a unique (course_id, reg_no) constraint.
+  if (state.activeCourse && state.activeCourse.yearKey === yearKey && state.activeCourse.sem === sem && row.course_id && row.id) {
     const courseRows = state.years[yearKey][sem].filter(r => r.course_id === row.course_id);
     const isDuplicate = courseRows.some(r => r !== row && (r.regNo || '').trim() === (row.regNo || '').trim() && (r.regNo || '').trim() !== '');
     const warnEl = document.getElementById(`regNoWarn-${yearKey}-${sem}-${idx}`);
